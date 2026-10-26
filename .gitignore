@@ -13,3 +13,6 @@ backend/data/*.sqlite-shm
 
 # Private workbook snapshot (customer data). The app starts empty without it.
 backend/data/workbook.json
+
+# Paste-ready Supabase SQL that contains the real secret
+supabase/*.local.sql

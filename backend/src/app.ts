@@ -14,8 +14,8 @@ app.use('/api', (req,res,next)=>{
   if(req.method==='OPTIONS'){res.sendStatus(204);return;}next();
 });
 app.use(express.json({ limit: '100kb' }));app.use('/api',jsonBody);
-app.get('/api/health', (_req, res) => {const database=databaseHealth();res.status(database.ready?200:503).json({status:database.ready?'ok':'unavailable',workspace:'product-tracking',storage:'sqlite',database});});
-app.get('/api/ready', (_req,res)=>res.json({ready:databaseHealth().ready}));
+app.get('/api/health', async (_req, res) => {const database=await databaseHealth();res.status(database.ready?200:503).json({status:database.ready?'ok':'unavailable',workspace:'product-tracking',storage:database.engine,database});});
+app.get('/api/ready', async (_req,res)=>res.json({ready:(await databaseHealth()).ready}));
 app.get('/api/openapi.json',(_req,res)=>res.json(openapi));
 app.get('/api/docs',(_req,res)=>res.type('html').send(docsHtml));
 app.use('/api/integrations', integrationsRouter);

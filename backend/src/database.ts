@@ -97,7 +97,8 @@ export class WorkspaceDatabase {
       this.db.exec('COMMIT'); return result;
     } catch(error){this.db.exec('ROLLBACK');throw error;}
   }
-  save(next: Store) {
+  /** Persists the workspace and returns the ids of activity events that did not exist before. */
+  save(next: Store): string[] {
     this.validate(next);
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -106,8 +107,10 @@ export class WorkspaceDatabase {
       const byId=new Map(next.activity.map(a=>[a.id,JSON.stringify(a)]));
       for(const row of this.db.prepare('SELECT id,payload FROM activity').all() as Row[]) if(byId.get(String(row.id))!==row.payload) throw new ConflictError('Existing audit events cannot be changed or removed.');
       for(const row of this.db.prepare('SELECT id FROM products').all() as Row[]) if(!next.products.some(p=>p.id===row.id)) throw new ConflictError('Existing products cannot be silently removed.');
+      const known=new Set((this.db.prepare('SELECT id FROM activity').all() as Row[]).map(row=>String(row.id)));
       this.write(next,Number(current.revision)+1);
       this.db.exec('COMMIT');
+      return next.activity.filter(a=>!known.has(a.id)).map(a=>a.id);
     } catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   health(){return {engine:'sqlite',schemaVersion:Number((this.db.prepare('PRAGMA user_version').get() as Row).user_version),ready:this.db.prepare('SELECT 1 FROM workspace_meta WHERE id=1').get()!==undefined};}

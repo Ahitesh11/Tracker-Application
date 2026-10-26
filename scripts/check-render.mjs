@@ -23,7 +23,7 @@ mkdirSync(fileURLToPath(new URL('.checks/',import.meta.url)),{recursive:true});
 writeFileSync(output,result.outputFiles[0].text);
 try {
  const {renderScreens}=await import(pathToFileURL(output).href);
- for(const {name,html} of renderScreens(snapshot())){
+ for(const {name,html} of renderScreens(await snapshot())){
   assert.ok(html.length>500,name+' did not render');
   assert.ok(!html.includes('NaN'),name+' has invalid numeric output');
   assert.ok(!html.includes('Invalid Date'),name+' has invalid date output');

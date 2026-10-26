@@ -110,3 +110,17 @@ The running backend exposes human-readable docs at http://127.0.0.1:3001/api/doc
 Writes accept an optional workspace `revision`; the frontend supplies it automatically. Stale revisions return HTTP 409 instead of overwriting newer records. SQL constraints protect quantity balances and existing audit events cannot be edited or removed.
 
 The bundled Node.js 22.15 runtime supports `node:sqlite` and emits its experimental-feature notice. No native database dependency or separate database server is required.
+
+## Supabase storage (for Vercel / permanent cloud data)
+
+By default the app stores data in a local SQLite file. To store it in Supabase instead (required on Vercel, where files are temporary):
+
+1. In Supabase open **SQL Editor**, paste [supabase/schema.sql](supabase/schema.sql), replace `CHANGE-ME-SECRET` (last statement) with a long random text and run it. This creates the `tracker_*` tables (row level security on, no public policies) and four functions the backend calls.
+2. Set these backend environment variables (`backend/.env` locally, Project Settings → Environment Variables on Vercel):
+   - `SUPABASE_URL` - project URL (Project Settings → API)
+   - `SUPABASE_ANON_KEY` - the publishable / anon key
+   - `SUPABASE_RPC_SECRET` - the same text you put in the SQL
+3. Restart the backend. `/api/health` reports `"storage":"supabase"`. The first request creates the workspace (empty, or from `backend/data/workbook.json` when present).
+4. Optional: copy the existing local data once with `npm run build --workspace backend && node scripts/migrate-local-to-supabase.mjs` (refuses to overwrite a non-empty workspace).
+
+The browser never talks to Supabase. Every backend call needs the shared secret, so the publishable key alone cannot read or change data. Saves are atomic, stale revisions return HTTP 409 and audit events cannot be edited, same as SQLite. Free Supabase projects pause after a week without activity.

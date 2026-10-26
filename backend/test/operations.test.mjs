@@ -76,8 +76,8 @@ test('workbook → production → partial approved logistics → persistent deli
     const status=await api('/assistant/status');assert.equal(status.ollama,true);assert.deepEqual(status.models,['test-model']);
     const ollama=await api('/assistant/chat',{prompt:'Show pending work',provider:'ollama',model:'test-model'});assert.equal(ollama.text,'Verified Ollama adapter response');
     await api('/assistant/chat',{prompt:'Test',provider:'gateway'},400);
-    const {getState}=await import('../dist/operations.js');assert.equal(getState().products.find(p=>p.id===id).delivered,6);
-    const restart=spawnSync(process.execPath,['--input-type=module','-e',`const {getState}=await import('./backend/dist/operations.js'); console.log(getState().products.find(p=>p.id==='${id}').delivered);`],{cwd:new URL('../../',import.meta.url),env:process.env,encoding:'utf8'});
+    const {getState}=await import('../dist/operations.js');assert.equal((await getState()).products.find(p=>p.id===id).delivered,6);
+    const restart=spawnSync(process.execPath,['--input-type=module','-e',`const {getState}=await import('./backend/dist/operations.js'); console.log((await getState()).products.find(p=>p.id==='${id}').delivered);`],{cwd:new URL('../../',import.meta.url),env:process.env,encoding:'utf8'});
     assert.equal(restart.status,0,restart.stderr);assert.equal(restart.stdout.trim(),'6');
   } finally {
     await new Promise(resolve=>server.close(resolve));await new Promise(resolve=>mock.close(resolve));

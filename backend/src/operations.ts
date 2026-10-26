@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { WorkspaceDatabase } from './database.js';
+import { SqliteStorage, SupabaseStorage, supabaseConfig, type Storage } from './storage.js';
 import { sheets } from './integrations/google/sheets.js';
 import { defaultLeads } from './default-leads.js';
 
@@ -67,8 +68,11 @@ function seed(): Store {
   const drafts = records(w, 'AI_Approval_Queue', 4).filter(r => r.Batch_ID).map(r => ({ id: r.Batch_ID, productId: r.Product_Line_ID, type: movement[r.Transaction_Type] || 'China receiving', quantity: Number(r.Qty), document: r.Document_Ref, carton: r.Carton_ID, shipment: r.Shipment_ID, container: r.Container_No, notes: [r.AI_Extracted_Notes, r.Discrepancy_Flag].filter(Boolean).join(' · '), confidence: r.AI_Confidence, status: r.Approval_Status === 'Approved' ? 'Approved' : 'Pending', createdAt: date(r.Upload_Date), reviewedBy: r.Reviewed_By, reviewedAt: date(r.Review_Date) } satisfies Draft));
   return { version: 1, source: w.source, importedAt: w.importedAt, products, leads, drafts, activity, shipments: records(w, '(BE)04_Shipments', 4, 9).filter(r => r.Shipment_ID), exceptions: records(w, '07_Exceptions_Actions', 4).filter(r => r.Exception_ID) };
 }
-const database = new WorkspaceDatabase(process.env.FMS_DB_FILE || (process.env.FMS_STATE_FILE ? stateFile + '.sqlite' : dataDirectory + 'forma.sqlite'), stateFile, seed);
-export const getState = () => database.read();
+// Supabase when SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_RPC_SECRET are set; otherwise a local SQLite file.
+const cloud = supabaseConfig();
+const storage: Storage = cloud ? new SupabaseStorage(cloud, seed) : new SqliteStorage(new WorkspaceDatabase(process.env.FMS_DB_FILE || (process.env.FMS_STATE_FILE ? stateFile + '.sqlite' : dataDirectory + 'forma.sqlite'), stateFile, seed));
+export const storageEngine = cloud ? 'supabase' : 'sqlite';
+export const getState = () => storage.read();
 export const activityHeaders = ['Time', 'Product ID', 'Action', 'Quantity', 'Document', 'Notes', 'Actor', 'Source', 'Shipment', 'Container', 'Event ID'];
 export const productHeaders = ['Product ID', 'PI', 'Order', 'Customer', 'Vendor', 'Product', 'Category', 'Subcategory', 'Ordered', 'China', 'Loaded', 'India', 'Delivered', 'Stage', 'Authorization', 'Production', 'Required date', 'Owner', 'Next action', 'Deadline'];
 export const activityRow = (a: Activity) => [a.at, a.productId, a.action, a.quantity, a.document, a.notes, a.actor, a.source, a.shipment || '', a.container || '', a.id];
@@ -76,19 +80,21 @@ export const productRows = (s: Store) => s.products.map(p => [p.id, p.pi, p.orde
 let sheetQueue: Promise<unknown> = Promise.resolve();
 /** Queue a background push to Google Sheets. Local save is already committed, so a Sheets failure never loses or blocks data. */
 export function pushToSheets(s: Store, fresh: Activity[]) {
-  if (!sheets.enabled) return;
+  if (!sheets.enabled) return Promise.resolve();
   sheetQueue = sheetQueue.then(async () => {
     await sheets.append('Activity_Log', activityHeaders, fresh.map(activityRow));
     await sheets.replace('Products', productHeaders, productRows(s));
   }).catch(error => { sheets.lastError = error instanceof Error ? error.message : 'Sheets sync failed'; console.error(JSON.stringify({ sheets: 'sync failed', error: sheets.lastError })); });
+  return sheetQueue;
 }
-export const commit = (next: Store) => {
-  const known = new Set(database.read().activity.map(a => a.id));
-  database.save(next);
-  pushToSheets(next, next.activity.filter(a => !known.has(a.id)).reverse());
+export const commit = async (next: Store) => {
+  const added = new Set(await storage.save(next));
+  const pushed = pushToSheets(next, next.activity.filter(a => added.has(a.id)).reverse());
+  // A serverless function is frozen once the response is sent, so wait for the sheet push there.
+  if (process.env.VERCEL) await pushed;
 };
-export const databaseHealth = () => database.health();
-export const closeDatabase = () => database.close();
+export const databaseHealth = () => storage.health();
+export const closeDatabase = () => storage.close();
 export class OperationError extends Error { status = 400; }
 export function must(condition: unknown, message: string): asserts condition { if (!condition) throw new OperationError(message); }
 export function getStage(p: Product) {
@@ -147,4 +153,4 @@ export function applyMovement(s: Store, d: Draft, actor: string) {
   p.deadline = p.required;
   s.activity.unshift({ id: randomUUID(), productId: p.id, action: d.type, quantity: d.quantity, document: d.document, notes: d.notes, actor, at: new Date().toISOString(), source: 'Operator approval', carton: d.carton, shipment: d.shipment, container: d.container });
 }
-export function snapshot() { const s = getState(); return { ...s, today: today(), products: s.products.map(p => ({ ...p, planning: plan(p, s) })), alerts: alerts(s), drafts: s.drafts.map(d => ({ ...d, duplicate: duplicate(s, d) })) }; }
+export async function snapshot() { const s = await getState(); return { ...s, today: today(), products: s.products.map(p => ({ ...p, planning: plan(p, s) })), alerts: alerts(s), drafts: s.drafts.map(d => ({ ...d, duplicate: duplicate(s, d) })) }; }
