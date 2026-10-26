@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+backend/data/workspace.json
+backend/data/workspace.json.tmp
+scripts/.checks/
+backend/data/*.sqlite
+backend/data/*.sqlite-wal
+backend/data/*.sqlite-shm
+
+# Private workbook snapshot (customer data). The app starts empty without it.
+backend/data/workbook.json
