@@ -12,5 +12,8 @@
     "build": "npm run build --workspace frontend && npm run build --workspace backend",
     "typecheck": "npm run typecheck --workspaces",
     "test": "npm run build --workspace backend && node --test backend/test/*.test.mjs"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }

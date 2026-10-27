@@ -7,3 +7,4 @@ dist/
 
 # Paste-ready Supabase SQL that contains the real secret
 supabase/*.local.sql
+.vercel

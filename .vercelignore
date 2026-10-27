@@ -1,0 +1,8 @@
+# Never upload secrets or local build output with the CLI.
+.env
+.env.*
+!.env.example
+**/.env
+node_modules
+**/dist
+*.log

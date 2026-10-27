@@ -9,7 +9,10 @@ export const app = express(); app.disable('x-powered-by'); app.disable('etag');
 app.use(requestContext);
 app.use('/api', (req,res,next)=>{
   const origin=req.headers.origin;
-  if(origin && !env.origins.includes(origin)){next(new HttpError(403,'Origin is not allowed.'));return;}
+  // Same-site requests (frontend and API served from one domain, e.g. one Vercel project) are always allowed.
+  const host=String(req.headers['x-forwarded-host']||req.headers.host||'');
+  const sameSite=Boolean(origin)&&(()=>{try{return new URL(origin as string).host===host;}catch{return false;}})();
+  if(origin && !sameSite && !env.origins.includes(origin)){next(new HttpError(403,'Origin is not allowed.'));return;}
   if(origin){res.setHeader('Access-Control-Allow-Origin',origin);res.vary('Origin');res.setHeader('Access-Control-Allow-Headers','Content-Type');res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');}
   if(req.method==='OPTIONS'){res.sendStatus(204);return;}next();
 });

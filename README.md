@@ -4,7 +4,9 @@ Track every product line from PI to customer delivery: authorization, factory pr
 
 ```
 frontend/            React + TypeScript UI (Vite)
-backend/             Express API (src), Vercel entry (api/index.mjs), tests
+backend/             Express API (src) and tests
+api/index.mjs        Vercel serverless entry that serves the backend under /api
+vercel.json          One-project Vercel build and routing
 supabase/schema.sql  Database tables and functions (run once)
 automation/apps-script/GoogleAppsScript.gs   Receives rows and writes the Google Sheet
 ```
@@ -24,7 +26,7 @@ SUPABASE_ANON_KEY=<publishable key>
 SUPABASE_RPC_SECRET=<same text as in the SQL>
 GOOGLE_APPS_SCRIPT_WEB_APP_URL=<optional, see below>
 GOOGLE_APPS_SCRIPT_SECRET=<optional>
-CORS_ORIGINS=<your frontend URL(s), comma separated>
+CORS_ORIGINS=<only needed when the frontend is on a different domain>
 ```
 Without the three Supabase variables the API answers HTTP 503 ("Supabase is not configured").
 
@@ -38,14 +40,18 @@ npm.cmd run dev:frontend     # http://127.0.0.1:5173  (proxies /api to the backe
 ```
 `npm test` builds the backend and runs the unit tests (movement rules, planning, alerts, Supabase client).
 
-## Deploy on Vercel (two projects from this repo)
-| | Backend | Frontend |
-|---|---|---|
-| Root Directory | `backend` | `frontend` |
-| Framework | Other (set in `vercel.json`) | Vite |
-| Environment variables | the backend variables above | `VITE_API_BASE_URL` = backend URL |
+## Deploy on Vercel (one project, one push)
+The repository root is a single Vercel project: [vercel.json](vercel.json) builds the frontend (`frontend/dist`) and serves the Express API from [api/index.mjs](api/index.mjs) under `/api`. Frontend and API share one domain, so there is no CORS setup and no `VITE_API_BASE_URL`.
 
-Set `CORS_ORIGINS` on the backend to the frontend URL. Turn off Vercel Authentication if the URLs should be reachable without a Vercel login. The app has no sign-in of its own, so anyone with the URL can use it.
+| Setting | Value |
+|---|---|
+| Root Directory | repository root (leave empty) |
+| Framework Preset | Other |
+| Build / Install / Output | taken from `vercel.json` (do not override) |
+| Node.js version | 22.x |
+| Environment variables | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_RPC_SECRET`, and optionally `GOOGLE_APPS_SCRIPT_WEB_APP_URL`, `GOOGLE_APPS_SCRIPT_SECRET` |
+
+Every `git push` to `main` redeploys everything. Turn off Vercel Authentication if the URL should open without a Vercel login. The app has no sign-in of its own, so anyone with the URL can use it.
 
 ## How it works
 - **Stage** is derived from quantities: authorization → production → China received → loaded → India received → delivered.

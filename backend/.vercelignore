@@ -1,8 +1,0 @@
-# Never upload secrets or tests to Vercel.
-.env
-.env.*
-!.env.example
-node_modules
-dist
-test
-*.log
