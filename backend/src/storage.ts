@@ -1,21 +1,15 @@
-import { ConflictError, WorkspaceDatabase } from './database.js';
 import type { Store } from './operations.js';
 
-/** Persistence used by operations.ts. SQLite for local use, Supabase when its environment variables are set. */
+/** A save was based on an older revision (HTTP 409). */
+export class ConflictError extends Error { status = 409; }
+
+/** Persistence used by operations.ts. */
 export interface Storage {
   read(): Promise<Store>;
-  /** Saves the workspace and resolves with the ids of activity events that are new. Rejects with ConflictError (409) on a stale revision. */
+  /** Saves the workspace and resolves with the ids of activity events that are new. Rejects with ConflictError on a stale revision. */
   save(next: Store): Promise<string[]>;
   health(): Promise<{ engine: string; schemaVersion: number; ready: boolean }>;
   close(): void;
-}
-
-export class SqliteStorage implements Storage {
-  constructor(private db: WorkspaceDatabase) {}
-  async read() { return this.db.read(); }
-  async save(next: Store) { return this.db.save(next); }
-  async health() { return this.db.health(); }
-  close() { this.db.close(); }
 }
 
 export interface SupabaseConfig { url: string; key: string; secret: string }
@@ -51,7 +45,7 @@ export class SupabaseStorage implements Storage {
   async read(): Promise<Store> {
     const state = await this.rpc<Store | null>('tracker_read', {});
     if (state) return state;
-    // First run: create the workspace from the optional workbook snapshot, or empty with default lead times.
+    // First run: create the workspace empty, with default lead times.
     try { await this.save({ ...this.seed(), revision: 0 }); } catch (error) { if (!(error instanceof ConflictError)) throw error; /* another instance initialised it first */ }
     const created = await this.rpc<Store | null>('tracker_read', {});
     if (!created) throw new Error('Supabase workspace could not be initialised.');

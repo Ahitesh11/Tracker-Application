@@ -1,126 +1,55 @@
-﻿# Forma — China-to-India sourcing operations
+﻿# Tracker (Forma) — China-to-India sourcing operations
 
-A local React/TypeScript workspace with an Express API and transactional SQLite database. An optional starting dataset can be imported from a private workbook snapshot; the repository itself ships with no business data.
+Track every product line from PI to customer delivery: authorization, factory progress, China warehouse, container loading, India receiving and delivery. Movements are drafted by operators and posted only after an explicit approval. Data lives in **Supabase** and every saved record is mirrored to a **Google Sheet**.
 
-## What works
+```
+frontend/            React + TypeScript UI (Vite)
+backend/             Express API (src), Vercel entry (api/index.mjs), tests
+supabase/schema.sql  Database tables and functions (run once)
+automation/apps-script/GoogleAppsScript.gs   Receives rows and writes the Google Sheet
+```
 
-- 15 imported product lines, 3 PIs, customers, vendors and category lead times.
-- Product search, customer/stage filters, PI scope, CSV export and new product entry.
-- Product detail: stock balances, backward production plan, milestones, source conflicts and history.
-- Authorization → instruction → vendor acknowledgment → production start → completion.
-- Partial China receipts → container loading → India receipts → customer deliveries.
-- Movement drafts and explicit operator approval. Approval validates stock and posts once to the activity log.
-- Action Centre recomputes overdue work, missing acknowledgments, collection/loading/delivery gaps and imported data reviews.
-- Customer reconciliation, local JSON backup and editable category lead times.
-- Assistant: useful local rules, optional Ollama chat, optional AI Gateway agent with a read-only workspace tool.
+## Setup
 
-## Run
+### 1. Supabase
+1. Supabase → **SQL Editor**: paste [supabase/schema.sql](supabase/schema.sql), replace `CHANGE-ME-SECRET` (last statement) with a long random text, run it.
+2. **Project Settings → API**: copy the **Project URL** and the **publishable / anon key**.
 
-From this project folder, use two terminals:
+The browser never talks to Supabase. Only the backend does, through four SQL functions that all require the shared secret; tables have row level security with no public policy, so the publishable key alone cannot read or change data. Saves are atomic, a stale screen gets HTTP 409, and audit events can never be edited.
 
+### 2. Backend environment (`backend/.env`, see `.env.example`)
+```
+SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
+SUPABASE_ANON_KEY=<publishable key>
+SUPABASE_RPC_SECRET=<same text as in the SQL>
+GOOGLE_APPS_SCRIPT_WEB_APP_URL=<optional, see below>
+GOOGLE_APPS_SCRIPT_SECRET=<optional>
+CORS_ORIGINS=<your frontend URL(s), comma separated>
+```
+Without the three Supabase variables the API answers HTTP 503 ("Supabase is not configured").
+
+### 3. Google Sheet (optional)
+Follow [automation/apps-script/README.md](automation/apps-script/README.md). After each save the backend appends the new events to the `Activity_Log` tab and rewrites the `Products` tab. A Sheet failure never blocks a save.
+
+## Run locally
 ```powershell
-npm.cmd run dev:frontend
+npm.cmd run dev:backend      # http://127.0.0.1:3001  (API docs at /api/docs)
+npm.cmd run dev:frontend     # http://127.0.0.1:5173  (proxies /api to the backend)
 ```
+`npm test` builds the backend and runs the unit tests (movement rules, planning, alerts, Supabase client).
 
-```powershell
-npm.cmd run dev:backend
-```
+## Deploy on Vercel (two projects from this repo)
+| | Backend | Frontend |
+|---|---|---|
+| Root Directory | `backend` | `frontend` |
+| Framework | Other (set in `vercel.json`) | Vite |
+| Environment variables | the backend variables above | `VITE_API_BASE_URL` = backend URL |
 
-Open **http://127.0.0.1:5173**. Frontend port 5173 proxies `/api` to backend port 3001. Both bind to loopback. The login screen remains a design preview; this is a single-computer workspace without multi-user authentication.
+Set `CORS_ORIGINS` on the backend to the frontend URL. Turn off Vercel Authentication if the URLs should be reachable without a Vercel login. The app has no sign-in of its own, so anyone with the URL can use it.
 
-Environment configuration is optional for local rules. To configure AI, copy `backend/.env.example` to `backend/.env` and restart the backend. Never put secrets in `VITE_` variables.
-
-## AI setup
-
-### Local rules — available immediately
-
-Select **Local rules** in AI Assistant. Ask for pending India deliveries, China stock, production work, or `Draft a vendor follow-up for PRD-ORD20260087-01`. These are deterministic summaries and templates, clearly labeled as local rules, not a connected language model.
-
-### Ollama — local model
-
-Install/run Ollama and install a model suitable for your computer. The app discovers installed model names using `/api/tags`; it does not guess or download models. Default server: `http://127.0.0.1:11434`. Set `OLLAMA_BASE_URL` on the backend if necessary. Open **Connections & Planning → Test connections**, then select **Ollama** and a detected model in AI Assistant. Requests use `/api/chat`, non-streaming, with a timeout. Workspace facts and your question go to that configured server.
-
-Official API: https://docs.ollama.com/api/chat and https://docs.ollama.com/api/tags.
-
-### AI Gateway — cloud model
-
-Set these in `backend/.env`:
-
-```dotenv
-AI_GATEWAY_API_KEY=your_gateway_key
-AI_MODEL=provider/model-id
-```
-
-Choose an actual current model ID from https://ai-gateway.vercel.sh/v1/models. No model or key is hardcoded. Restart the backend, test connections, then choose **AI Gateway** in AI Assistant. The installed AI SDK's `ToolLoopAgent` uses a read-only workspace tool with a three-step limit. Questions and returned workspace data are sent to the configured cloud model. No cloud AI calls happen in local rules mode. See https://vercel.com/docs/ai-gateway/getting-started.
-
-The assistant cannot approve records, send messages, pay suppliers, or claim live carrier/GPS data. It can answer questions and prepare text. Operators record real movements and approve them in the app.
-
-## Everyday operation
-
-1. Open **Products & Orders**, find a product, click its name.
-2. Use **Update product** to record authorization, instruction, acknowledgment and factory progress.
-3. Use **Record movement** with quantity and a unique receipt/document reference. For loading, supply shipment and container references.
-4. In **Approval Inbox**, enter your reviewer name and check product, quantity, evidence and document. Approve or reject.
-5. Quantities, derived stages, actions, reports and history update together. Partial movements leave the balance open.
-6. Use **Action Centre** each day. Assign a next action, owner and deadline. Resolve imported data issues only after checking evidence.
-7. Download a workspace backup regularly.
-
-## Data and planning
-
-- **Fresh start:** the repository contains no customer data. Without `backend/data/workbook.json` (private, gitignored) the app starts as an empty workspace with generic category lead times from `backend/src/default-leads.ts`. Add products in the app; every saved record is mirrored to Google Sheets. Tests use the anonymized fixture `backend/test/fixtures/sample-workbook.json` (set `FMS_SEED_FILE` to use another snapshot).
-- `backend/data/workbook.json`: read-only source snapshot, including original cell references and cached workbook formula values.
-- `backend/data/forma.sqlite`: persistent SQLite database with product, lead-time, draft, activity, shipment and exception tables. Stock changes, approvals, audit events and revision increments commit in a single transaction.
-- `scripts/import-workbook.ps1`: repeatable read-only OOXML extraction. It never executes workbook macros, formulas or embedded instructions. It uses Windows ZIP/XML support and does not modify the workbook.
-- An existing `backend/data/workspace.json` is migrated once on first database initialization. The legacy JSON is left unchanged. Later restarts load SQLite, never replay the seed.
-- Source sheet `01_Master_Products` owns product rows. Lead times come from `Production_Lead_Time_Master`. Approval queue and approved movements are imported separately; approved source movements are not replayed against opening balances.
-- Duplicate `Qty_Received_China` columns can disagree. Use a product?s Update product ? Reconcile imported balances with evidence to correct opening quantities. Import preserves both in the snapshot, uses the higher quantity as the opening balance and flags the conflict for review. Production-versus-receipt conflicts are also flagged.
-- Effective/revised customer dates are used for planning; legacy dates remain visible as source conflicts. Dates are recalculated in India time instead of trusting cached `TODAY()` results.
-- Latest completion = required delivery minus transit and all logistics buffers. Latest start = latest completion minus manufacturing days.
-- The example includes March/April operational dates alongside late-2026/2027 required dates. These are preserved, so overdue alerts are expected. No dates or statuses are silently made current.
-- No workbook prices were provided; the app does not invent monetary totals.
-
-To extract a different workbook snapshot (for a new workspace):
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/import-workbook.ps1 -WorkbookPath 'C:\path\MAIN SHEET PT.xlsx'
-```
-
-An initialized SQLite database takes precedence over the legacy JSON and seed snapshot. Re-importing a seed does **not** overwrite saved app changes. Back up first and reconcile a new workbook deliberately; automatic merging and Excel write-back are not implemented.
-
-## Checks
-
-```powershell
-npm.cmd run typecheck
-npm.cmd run build
-npm.cmd test
-```
-
-The API and database tests use temporary isolated SQLite databases. It covers source mapping, planning, product creation, required sequence, partial movements, quantity bounds, duplicate/repeated approvals, rejection, backup, restart persistence, local assistant, the Ollama adapter against a mock server, and cloud-configuration errors. It does not contact a paid model or modify the real workspace.
-
-## Boundaries
-
-Carrier statuses are manually recorded workbook events. Google Sheets/Drive, WhatsApp/email, document/image OCR, live carrier APIs, scheduled notifications, user authentication and shared cloud storage are not connected. File names in source evidence fields are references, not uploaded attachments. Local alert computation runs when workspace data is requested; it is not a background notification service.
-
-Before a multi-user or public deployment, add authenticated roles, a hosted database strategy, attachment storage and approved communication integrations. No deployment or external account was created by this change.
-
-## Backend API
-
-The running backend exposes human-readable docs at http://127.0.0.1:3001/api/docs and an OpenAPI specification at `/api/openapi.json`. Health and readiness are `/api/health` and `/api/ready`. Read [backend/README.md](backend/README.md) for database paths, migrations, endpoints and operating details.
-
-Writes accept an optional workspace `revision`; the frontend supplies it automatically. Stale revisions return HTTP 409 instead of overwriting newer records. SQL constraints protect quantity balances and existing audit events cannot be edited or removed.
-
-The bundled Node.js 22.15 runtime supports `node:sqlite` and emits its experimental-feature notice. No native database dependency or separate database server is required.
-
-## Supabase storage (for Vercel / permanent cloud data)
-
-By default the app stores data in a local SQLite file. To store it in Supabase instead (required on Vercel, where files are temporary):
-
-1. In Supabase open **SQL Editor**, paste [supabase/schema.sql](supabase/schema.sql), replace `CHANGE-ME-SECRET` (last statement) with a long random text and run it. This creates the `tracker_*` tables (row level security on, no public policies) and four functions the backend calls.
-2. Set these backend environment variables (`backend/.env` locally, Project Settings → Environment Variables on Vercel):
-   - `SUPABASE_URL` - project URL (Project Settings → API)
-   - `SUPABASE_ANON_KEY` - the publishable / anon key
-   - `SUPABASE_RPC_SECRET` - the same text you put in the SQL
-3. Restart the backend. `/api/health` reports `"storage":"supabase"`. The first request creates the workspace (empty, or from `backend/data/workbook.json` when present).
-4. Optional: copy the existing local data once with `npm run build --workspace backend && node scripts/migrate-local-to-supabase.mjs` (refuses to overwrite a non-empty workspace).
-
-The browser never talks to Supabase. Every backend call needs the shared secret, so the publishable key alone cannot read or change data. Saves are atomic, stale revisions return HTTP 409 and audit events cannot be edited, same as SQLite. Free Supabase projects pause after a week without activity.
+## How it works
+- **Stage** is derived from quantities: authorization → production → China received → loaded → India received → delivered.
+- **Planning** works backwards: required delivery − (transit + buffers) = latest completion; minus manufacturing days = latest start. Category lead times are editable in the app.
+- **Approval inbox**: a movement draft changes stock only when approved, validates quantities (ordered ≥ China ≥ loaded ≥ India ≥ delivered) and posts once per document reference.
+- **Action Centre** recomputes overdue work and missing steps whenever data is requested.
+- **Assistant**: local rules by default; optional Ollama or AI Gateway with a read-only workspace tool. It cannot approve or send anything.

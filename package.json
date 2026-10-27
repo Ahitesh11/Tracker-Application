@@ -11,7 +11,6 @@
     "dev:backend": "npm run dev --workspace backend",
     "build": "npm run build --workspace frontend && npm run build --workspace backend",
     "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run build --workspace backend && node --test backend/test/*.test.mjs",
-    "check:render": "node scripts/check-render.mjs"
+    "test": "npm run build --workspace backend && node --test backend/test/*.test.mjs"
   }
 }

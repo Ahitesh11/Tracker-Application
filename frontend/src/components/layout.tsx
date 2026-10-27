@@ -56,7 +56,7 @@ export function Layout() {
         {error && <div className="error-banner" role="alert">Unable to refresh: {error} Start the backend with npm run dev:backend.{data ? ' Showing the last loaded records.' : ''}</div>}
         {data ? <Outlet/> : !error && <div className="loading-state" aria-busy="true" aria-label="Loading your workspace"><div className="metric-grid">{[0, 1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 118 }}/>)}</div><div className="skeleton" style={{ height: 220 }}/><div className="skeleton" style={{ height: 320 }}/></div>}
       </main>
-      <footer className="footer"><span>Forma · Product-level tracking</span><span>Data saved locally{sheet?.tone === '' ? ' · mirrored to Google Sheets' : ''}</span></footer>
+      <footer className="footer"><span>Forma · Product-level tracking</span><span>Data stored in Supabase{sheet?.tone === '' ? ' · mirrored to Google Sheets' : ''}</span></footer>
     </div>
     {notice && <div className="toast" role="status"><CheckCircle2 size={18}/>{notice}</div>}
     <CommandPalette open={palette} onClose={() => setPalette(false)}/>

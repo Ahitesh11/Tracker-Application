@@ -1,8 +1,7 @@
-# Never upload secrets, local databases, private data or tests to Vercel.
+# Never upload secrets or tests to Vercel.
 .env
 .env.*
 !.env.example
-data
 node_modules
 dist
 test

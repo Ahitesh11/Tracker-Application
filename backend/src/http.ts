@@ -16,7 +16,6 @@ export const errors: ErrorRequestHandler = (error: unknown,_req,res,_next) => {
   if(error && typeof error==='object' && 'status' in error && typeof error.status==='number' && error.status>=400 && error.status<600){status=error.status;message=error instanceof Error?error.message:'Request failed.';}
   if(error && typeof error==='object' && 'type' in error && error.type==='entity.parse.failed'){status=400;message='Invalid JSON request.';}
   if(status===413)message='Request is too large. Maximum JSON size is 100 KB.';
-  if(error instanceof Error && /SQLITE_BUSY|database is locked/.test(error.message)){status=503;message='Database is busy. Retry shortly.';}
   if(status>=500)console.error(JSON.stringify({requestId:res.locals.requestId,error:error instanceof Error?error.name:'UnknownError',status}));
   res.status(status).json({error:message,requestId:res.locals.requestId});
 };

@@ -1,8 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { WorkspaceDatabase } from './database.js';
-import { SqliteStorage, SupabaseStorage, supabaseConfig, type Storage } from './storage.js';
+import { SupabaseStorage, supabaseConfig, type Storage } from './storage.js';
+import { HttpError } from './http.js';
 import { sheets } from './integrations/google/sheets.js';
 import { defaultLeads } from './default-leads.js';
 
@@ -18,11 +16,6 @@ export type Movement = 'China receiving' | 'Container loading' | 'India receivin
 export interface Draft { id: string; productId: string; type: Movement; quantity: number; document: string; carton: string; shipment: string; container: string; notes: string; confidence: string; status: string; createdAt: string; reviewedBy?: string; reviewedAt?: string }
 export interface Activity { id: string; productId: string; action: string; quantity: number; document: string; notes: string; actor: string; at: string; source: string; carton?: string; shipment?: string; container?: string }
 export interface Store { version: number; revision?: number; source: string; importedAt: string; products: Product[]; leads: LeadTime[]; drafts: Draft[]; activity: Activity[]; shipments: Record<string, string>[]; exceptions: Record<string, string>[] }
-type Workbook = { source: string; importedAt: string; sheets: Record<string, { row: number; cells: Record<string, string> }[]> };
-const dataDirectory = fileURLToPath(new URL('../data/', import.meta.url));
-const stateFile = process.env.FMS_STATE_FILE || dataDirectory + 'workspace.json';
-// Optional workbook snapshot (kept out of git). Without it the app starts as an empty workspace.
-const seedFile = process.env.FMS_SEED_FILE || dataDirectory + 'workbook.json';
 export const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 export function date(value: string | undefined): string {
   if (!value || value === '0') return '';
@@ -32,47 +25,20 @@ export function date(value: string | undefined): string {
 }
 export function shift(value: string, days: number) { return new Date(Date.parse(value + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10); }
 export function daysBetween(a: string, b: string) { return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000); }
-function records(w: Workbook, sheet: string, header: number, until = Infinity) {
-  const rows = w.sheets[sheet] || [];
-  const keys = rows.find(r => r.row === header)?.cells || {};
-  return rows.filter(r => r.row > header && r.row < until).map(r => Object.fromEntries(Object.entries(keys).map(([column, key]) => [key, r.cells[column] || ''])));
-}
 function emptyStore(): Store {
   return { version: 1, source: 'Empty workspace', importedAt: new Date().toISOString(), products: [], leads: defaultLeads.map(lead => ({ ...lead })), drafts: [], activity: [], shipments: [], exceptions: [] };
 }
-function seed(): Store {
-  if (!existsSync(seedFile)) return emptyStore();
-  const w = JSON.parse(readFileSync(seedFile, 'utf8')) as Workbook;
-  const products = records(w, '01_Master_Products', 1).filter(r => r.Product_ID).map(r => {
-    const issues: string[] = [];
-    // The workbook has two columns named Qty_Received_China. Read both original cells explicitly.
-    const source = w.sheets['01_Master_Products'].find(row => row.cells.A === r.Product_ID)!.cells;
-    if (Number(source.AF || 0) !== Number(source.BY || 0)) issues.push(`China quantity conflict: original ${source.AF || 0}, call-out view ${source.BY || 0}. Imported higher figure; reconcile with receipt evidence.`);
-    if (date(r.Required_Delivery_Date) !== date(r.Effective_Required_Date)) issues.push('Legacy and effective delivery dates differ. Planning uses the effective date; confirm with customer.');
-    const china = Math.max(Number(source.AF || 0), Number(source.BY || 0));
-    if (china > 0 && r.Production_Status !== 'Production Completed') issues.push('Warehouse receipt exists while production is not marked complete. Verify production status.');
-    return {
-      id: r.Product_ID, pi: r.Final_PI_Number, order: r.Order_ID, customer: r.Customer_Name, vendor: r.Vendor_Name, name: r.Product_Name,
-      specs: r.Specifications, dimensions: r.Dimensions, category: r.Production_Category, subcategory: r.Production_Subcategory,
-      quantity: Number(r.Quantity_Ordered), unit: r.Unit || 'pcs', authorization: r.Production_Authorization, production: r.Production_Status,
-      required: date(r.Revised_Customer_Required_Date) || date(r.Effective_Required_Date) || date(r.Required_Delivery_Date), originalRequired: date(r.Required_Delivery_Date),
-      expectedCompletion: date(r.Expected_Completion_Date), instructionDate: date(r.Instruction_Sent_Date), ackDate: date(r.Vendor_Ack_Date), startDate: date(r.Production_Start_Date), completionDate: date(r.Actual_Completion_Date),
-      china, loaded: Number(r.Qty_Loaded || 0), india: Number(r.Qty_Received_India || 0), delivered: Number(r.Qty_Delivered || 0), calledOut: Number(r.Qty_Called_Out || 0),
-      owner: r.Current_Owner, nextAction: r.Next_Action, deadline: date(r.Next_Action_Deadline), shipment: r.Shipment_ID_China || r.Planned_Container_ID,
-      container: '', notes: r.Notes, issues,
-    } satisfies Product;
-  });
-  const leads = records(w, 'Production_Lead_Time_Master', 4).filter(r => r.Subcategory && r.Mfg_Lead_Days).map(r => ({ category: r.Category, subcategory: r.Subcategory, manufacturing: Number(r.Mfg_Lead_Days), transit: Number(r.Transit_Days), chinaBuffer: Number(r.China_WH_Buffer), consolidation: Number(r.Consolidation_Buffer), customs: Number(r.Customs_India_Buffer), delivery: Number(r.Final_Delivery_Buffer), safety: Number(r.Safety_Buffer) }));
-  const movement: Record<string, Movement> = { 'China Warehouse Receiving': 'China receiving', 'China Container Loading': 'Container loading', 'China Dispatch': 'Container loading', 'India Warehouse Receiving': 'India receiving' };
-  const activity = records(w, 'Logistics_Transactions', 4).filter(r => r.Transaction_ID).map(r => ({ id: r.Transaction_ID, productId: r.Product_Line_ID, action: movement[r.Transaction_Type] || r.Transaction_Type, quantity: Number(r.Qty), document: r.Document_Ref, notes: `Imported approved movement: ${r.From_Location} → ${r.To_Location}`, actor: r.Approved_By || 'Workbook', at: `${date(r.Transaction_Date)}T12:00:00+05:30`, source: 'Workbook', carton: r.Carton_ID, shipment: r.Shipment_ID, container: r.Container_No }));
-  const drafts = records(w, 'AI_Approval_Queue', 4).filter(r => r.Batch_ID).map(r => ({ id: r.Batch_ID, productId: r.Product_Line_ID, type: movement[r.Transaction_Type] || 'China receiving', quantity: Number(r.Qty), document: r.Document_Ref, carton: r.Carton_ID, shipment: r.Shipment_ID, container: r.Container_No, notes: [r.AI_Extracted_Notes, r.Discrepancy_Flag].filter(Boolean).join(' · '), confidence: r.AI_Confidence, status: r.Approval_Status === 'Approved' ? 'Approved' : 'Pending', createdAt: date(r.Upload_Date), reviewedBy: r.Reviewed_By, reviewedAt: date(r.Review_Date) } satisfies Draft));
-  return { version: 1, source: w.source, importedAt: w.importedAt, products, leads, drafts, activity, shipments: records(w, '(BE)04_Shipments', 4, 9).filter(r => r.Shipment_ID), exceptions: records(w, '07_Exceptions_Actions', 4).filter(r => r.Exception_ID) };
+// Data lives in Supabase (see supabase/schema.sql). The connection is created on first use.
+let storage: Storage | undefined;
+function store(): Storage {
+  if (!storage) {
+    const config = supabaseConfig();
+    if (!config) throw new HttpError(503, 'Supabase is not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_RPC_SECRET on the backend.');
+    storage = new SupabaseStorage(config, emptyStore);
+  }
+  return storage;
 }
-// Supabase when SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_RPC_SECRET are set; otherwise a local SQLite file.
-const cloud = supabaseConfig();
-const storage: Storage = cloud ? new SupabaseStorage(cloud, seed) : new SqliteStorage(new WorkspaceDatabase(process.env.FMS_DB_FILE || (process.env.FMS_STATE_FILE ? stateFile + '.sqlite' : dataDirectory + 'forma.sqlite'), stateFile, seed));
-export const storageEngine = cloud ? 'supabase' : 'sqlite';
-export const getState = () => storage.read();
+export const getState = () => store().read();
 export const activityHeaders = ['Time', 'Product ID', 'Action', 'Quantity', 'Document', 'Notes', 'Actor', 'Source', 'Shipment', 'Container', 'Event ID'];
 export const productHeaders = ['Product ID', 'PI', 'Order', 'Customer', 'Vendor', 'Product', 'Category', 'Subcategory', 'Ordered', 'China', 'Loaded', 'India', 'Delivered', 'Stage', 'Authorization', 'Production', 'Required date', 'Owner', 'Next action', 'Deadline'];
 export const activityRow = (a: Activity) => [a.at, a.productId, a.action, a.quantity, a.document, a.notes, a.actor, a.source, a.shipment || '', a.container || '', a.id];
@@ -88,13 +54,13 @@ export function pushToSheets(s: Store, fresh: Activity[]) {
   return sheetQueue;
 }
 export const commit = async (next: Store) => {
-  const added = new Set(await storage.save(next));
+  const added = new Set(await store().save(next));
   const pushed = pushToSheets(next, next.activity.filter(a => added.has(a.id)).reverse());
   // A serverless function is frozen once the response is sent, so wait for the sheet push there.
   if (process.env.VERCEL) await pushed;
 };
-export const databaseHealth = () => storage.health();
-export const closeDatabase = () => storage.close();
+export const databaseHealth = async () => supabaseConfig() ? store().health() : { engine: 'supabase', schemaVersion: 1, ready: false };
+export const closeDatabase = () => storage?.close();
 export class OperationError extends Error { status = 400; }
 export function must(condition: unknown, message: string): asserts condition { if (!condition) throw new OperationError(message); }
 export function getStage(p: Product) {

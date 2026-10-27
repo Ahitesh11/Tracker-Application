@@ -77,7 +77,7 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
           {error && <div className="error-banner" role="alert">{error}</div>}{saved && <div className="success-banner" role="status">{saved}</div>}
           <Button type="submit" disabled={busy}>{busy ? 'Saving…' : tab === 'Record movement' ? 'Create movement draft' : 'Save product update'}</Button>
         </form>}
-        {tab === 'History' && <div className="activity-timeline">{data?.activity.filter(a => a.productId === p.id).map(a => <article key={a.id}><span className="timeline-dot"/><strong>{a.action}{a.quantity ? ` · ${a.quantity} ${p.unit}` : ''}</strong><small>{displayDate(a.at)} · {a.actor} · {a.document || a.source}</small><p>{a.notes}</p></article>)}{!data?.activity.some(a => a.productId === p.id) && <p className="muted">No movement events yet. Initial status was imported from the workbook.</p>}</div>}
+        {tab === 'History' && <div className="activity-timeline">{data?.activity.filter(a => a.productId === p.id).map(a => <article key={a.id}><span className="timeline-dot"/><strong>{a.action}{a.quantity ? ` · ${a.quantity} ${p.unit}` : ''}</strong><small>{displayDate(a.at)} · {a.actor} · {a.document || a.source}</small><p>{a.notes}</p></article>)}{!data?.activity.some(a => a.productId === p.id) && <p className="muted">No movement events yet.</p>}</div>}
       </div>
     </aside>
   </div>;

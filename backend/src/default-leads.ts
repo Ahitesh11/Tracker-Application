@@ -1,5 +1,5 @@
 import type { LeadTime } from './operations.js';
-/** Generic category lead times used when no workbook snapshot is present. Editable in the app (Connections & Planning). */
+/** Generic category lead times used for a new workspace. Editable in the app (Connections & Planning). */
 export const defaultLeads: LeadTime[] = [
   {
     "category": "Furniture",
