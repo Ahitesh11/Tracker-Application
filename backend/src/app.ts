@@ -5,6 +5,7 @@ import { databaseHealth } from './operations.js';
 import { requestContext, jsonBody, errors, HttpError } from './http.js';
 import { catalogRouter } from './routes/catalog.js';
 import { openapi, docsHtml } from './openapi.js';
+import { authenticate, authRouter, requireLogin } from './auth.js';
 export const app = express(); app.disable('x-powered-by'); app.disable('etag');
 app.use(requestContext);
 app.use('/api', (req,res,next)=>{
@@ -16,11 +17,13 @@ app.use('/api', (req,res,next)=>{
   if(origin){res.setHeader('Access-Control-Allow-Origin',origin);res.vary('Origin');res.setHeader('Access-Control-Allow-Headers','Content-Type');res.setHeader('Access-Control-Allow-Methods','GET,POST,OPTIONS');}
   if(req.method==='OPTIONS'){res.sendStatus(204);return;}next();
 });
-app.use(express.json({ limit: '100kb' }));app.use('/api',jsonBody);
+app.use(express.json({ limit: '100kb' }));app.use('/api',jsonBody);app.use('/api',authenticate);
 app.get('/api/health', async (_req, res) => {const database=await databaseHealth();res.status(database.ready?200:503).json({status:database.ready?'ok':'unavailable',workspace:'product-tracking',storage:database.engine,database});});
 app.get('/api/ready', async (_req,res)=>res.json({ready:(await databaseHealth()).ready}));
 app.get('/api/openapi.json',(_req,res)=>res.json(openapi));
 app.get('/api/docs',(_req,res)=>res.type('html').send(docsHtml));
+app.use('/api/auth', authRouter);
+app.use('/api', requireLogin);
 app.use('/api/workspace', workspaceRouter);
 app.use('/api',catalogRouter);
 app.use('/api/assistant', assistantRouter);
