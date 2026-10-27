@@ -1,6 +1,6 @@
 ﻿# Tracker (Forma) — China-to-India sourcing operations
 
-Track every product line from PI to customer delivery: authorization, factory progress, China warehouse, container loading, India receiving and delivery. Movements are drafted by operators and posted only after an explicit approval. Data lives in **Supabase** and every saved record is mirrored to a **Google Sheet**.
+Track every product line from PI to customer delivery: authorization, factory progress, China warehouse, container loading, India receiving and delivery. Movements are drafted by operators and posted only after an explicit approval. Data lives in **Supabase**.
 
 ```
 frontend/            React + TypeScript UI (Vite)
@@ -8,7 +8,6 @@ backend/             Express API (src) and tests
 api/index.mjs        Vercel serverless entry that serves the backend under /api
 vercel.json          One-project Vercel build and routing
 supabase/schema.sql  Database tables and functions (run once)
-automation/apps-script/GoogleAppsScript.gs   Receives rows and writes the Google Sheet
 ```
 
 ## Setup
@@ -24,14 +23,9 @@ The browser never talks to Supabase. Only the backend does, through four SQL fun
 SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
 SUPABASE_ANON_KEY=<publishable key>
 SUPABASE_RPC_SECRET=<same text as in the SQL>
-GOOGLE_APPS_SCRIPT_WEB_APP_URL=<optional, see below>
-GOOGLE_APPS_SCRIPT_SECRET=<optional>
 CORS_ORIGINS=<only needed when the frontend is on a different domain>
 ```
 Without the three Supabase variables the API answers HTTP 503 ("Supabase is not configured").
-
-### 3. Google Sheet (optional)
-Follow [automation/apps-script/README.md](automation/apps-script/README.md). After each save the backend appends the new events to the `Activity_Log` tab and rewrites the `Products` tab. A Sheet failure never blocks a save.
 
 ## Run locally
 ```powershell
@@ -49,7 +43,7 @@ The repository root is a single Vercel project: [vercel.json](vercel.json) build
 | Framework Preset | Other |
 | Build / Install / Output | taken from `vercel.json` (do not override) |
 | Node.js version | 22.x |
-| Environment variables | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_RPC_SECRET`, and optionally `GOOGLE_APPS_SCRIPT_WEB_APP_URL`, `GOOGLE_APPS_SCRIPT_SECRET` |
+| Environment variables | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_RPC_SECRET` |
 
 Every `git push` to `main` redeploys everything. Turn off Vercel Authentication if the URL should open without a Vercel login. The app has no sign-in of its own, so anyone with the URL can use it.
 

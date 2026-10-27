@@ -1,5 +1,5 @@
 import './config/env.js';
-import express from 'express'; import { integrationsRouter } from './routes/integrations.js'; import { workspaceRouter } from './routes/workspace.js'; import { assistantRouter } from './routes/assistant.js';
+import express from 'express'; import { workspaceRouter } from './routes/workspace.js'; import { assistantRouter } from './routes/assistant.js';
 import { env } from './config/env.js';
 import { databaseHealth } from './operations.js';
 import { requestContext, jsonBody, errors, HttpError } from './http.js';
@@ -21,7 +21,6 @@ app.get('/api/health', async (_req, res) => {const database=await databaseHealth
 app.get('/api/ready', async (_req,res)=>res.json({ready:(await databaseHealth()).ready}));
 app.get('/api/openapi.json',(_req,res)=>res.json(openapi));
 app.get('/api/docs',(_req,res)=>res.type('html').send(docsHtml));
-app.use('/api/integrations', integrationsRouter);
 app.use('/api/workspace', workspaceRouter);
 app.use('/api',catalogRouter);
 app.use('/api/assistant', assistantRouter);

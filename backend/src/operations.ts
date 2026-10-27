@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { SupabaseStorage, supabaseConfig, type Storage } from './storage.js';
 import { HttpError } from './http.js';
-import { sheets } from './integrations/google/sheets.js';
 import { defaultLeads } from './default-leads.js';
 
 export interface Product {
@@ -39,26 +38,7 @@ function store(): Storage {
   return storage;
 }
 export const getState = () => store().read();
-export const activityHeaders = ['Time', 'Product ID', 'Action', 'Quantity', 'Document', 'Notes', 'Actor', 'Source', 'Shipment', 'Container', 'Event ID'];
-export const productHeaders = ['Product ID', 'PI', 'Order', 'Customer', 'Vendor', 'Product', 'Category', 'Subcategory', 'Ordered', 'China', 'Loaded', 'India', 'Delivered', 'Stage', 'Authorization', 'Production', 'Required date', 'Owner', 'Next action', 'Deadline'];
-export const activityRow = (a: Activity) => [a.at, a.productId, a.action, a.quantity, a.document, a.notes, a.actor, a.source, a.shipment || '', a.container || '', a.id];
-export const productRows = (s: Store) => s.products.map(p => [p.id, p.pi, p.order, p.customer, p.vendor, p.name, p.category, p.subcategory, p.quantity, p.china, p.loaded, p.india, p.delivered, getStage(p), p.authorization, p.production, p.required, p.owner, p.nextAction, p.deadline]);
-let sheetQueue: Promise<unknown> = Promise.resolve();
-/** Queue a background push to Google Sheets. Local save is already committed, so a Sheets failure never loses or blocks data. */
-export function pushToSheets(s: Store, fresh: Activity[]) {
-  if (!sheets.enabled) return Promise.resolve();
-  sheetQueue = sheetQueue.then(async () => {
-    await sheets.append('Activity_Log', activityHeaders, fresh.map(activityRow));
-    await sheets.replace('Products', productHeaders, productRows(s));
-  }).catch(error => { sheets.lastError = error instanceof Error ? error.message : 'Sheets sync failed'; console.error(JSON.stringify({ sheets: 'sync failed', error: sheets.lastError })); });
-  return sheetQueue;
-}
-export const commit = async (next: Store) => {
-  const added = new Set(await store().save(next));
-  const pushed = pushToSheets(next, next.activity.filter(a => added.has(a.id)).reverse());
-  // A serverless function is frozen once the response is sent, so wait for the sheet push there.
-  if (process.env.VERCEL) await pushed;
-};
+export const commit = async (next: Store) => { await store().save(next); };
 export const databaseHealth = async () => supabaseConfig() ? store().health() : { engine: 'supabase', schemaVersion: 1, ready: false };
 export const closeDatabase = () => storage?.close();
 export class OperationError extends Error { status = 400; }

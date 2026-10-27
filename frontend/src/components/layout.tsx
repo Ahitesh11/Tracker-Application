@@ -7,17 +7,10 @@ import { useWorkspace } from '@/components/workspace-provider';
 import { ProductDetail } from '@/components/product-detail';
 import { CommandPalette } from '@/components/command-palette';
 import { displayDate } from '@/services/workspace-api';
-import { useSheetStatus } from '@/lib/sheet-status';
 
-function sheetChip(status: ReturnType<typeof useSheetStatus>) {
-  if (!status) return null;
-  if (status.sheets === 'connected') return { tone: '', label: 'Google Sheet synced', title: status.sheetsLastSync ? `Last push ${displayDate(status.sheetsLastSync)}` : 'Connected — every saved record is pushed to the sheet' };
-  if (status.sheets === 'error') return { tone: 'error', label: 'Sheet sync issue', title: status.sheetsError || 'Google Sheet could not be updated. Data is safe locally.' };
-  return { tone: 'off', label: 'Sheet not connected', title: 'Set GOOGLE_APPS_SCRIPT_WEB_APP_URL in backend/.env' };
-}
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false), [mobileOpen, setMobileOpen] = useState(false), [palette, setPalette] = useState(false);
-  const { data, error, refresh, notice } = useWorkspace(), sheet = sheetChip(useSheetStatus());
+  const { data, error, refresh, notice } = useWorkspace();
   const location = useLocation(), current = navigation.find(item => item.path === location.pathname);
   const pending = data?.drafts.filter(d => d.status === 'Pending').length || 0;
   useEffect(() => { setMobileOpen(false); document.getElementById('main')?.scrollTo({ top: 0 }); }, [location.pathname]);
@@ -47,7 +40,6 @@ export function Layout() {
         </div>
         <div className="header-right">
           <button className="search-trigger" onClick={() => setPalette(true)} aria-label="Search (Ctrl+K)"><Search size={16}/><span>Search products, pages…</span><kbd>Ctrl K</kbd></button>
-          {sheet && <span className={`sync-chip ${sheet.tone}`} title={sheet.title}><i/>{sheet.label}</span>}
           <Link to="/guide" title="How it works" aria-label="How it works"><CircleHelp size={19}/></Link>
         </div>
       </header>
@@ -56,7 +48,7 @@ export function Layout() {
         {error && <div className="error-banner" role="alert">Unable to refresh: {error} Start the backend with npm run dev:backend.{data ? ' Showing the last loaded records.' : ''}</div>}
         {data ? <Outlet/> : !error && <div className="loading-state" aria-busy="true" aria-label="Loading your workspace"><div className="metric-grid">{[0, 1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: 118 }}/>)}</div><div className="skeleton" style={{ height: 220 }}/><div className="skeleton" style={{ height: 320 }}/></div>}
       </main>
-      <footer className="footer"><span>Forma · Product-level tracking</span><span>Data stored in Supabase{sheet?.tone === '' ? ' · mirrored to Google Sheets' : ''}</span></footer>
+      <footer className="footer"><span>Forma · Product-level tracking</span><span>Data stored in Supabase</span></footer>
     </div>
     {notice && <div className="toast" role="status"><CheckCircle2 size={18}/>{notice}</div>}
     <CommandPalette open={palette} onClose={() => setPalette(false)}/>
