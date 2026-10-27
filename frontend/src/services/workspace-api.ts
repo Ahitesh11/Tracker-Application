@@ -18,6 +18,7 @@ export const exceptionTypes = ['Damage', 'Shortage', 'Late vendor', 'Missed cont
 export interface WorkspaceData { revision: number; source: string; importedAt: string; today: string; products: Product[]; leads: LeadTime[]; drafts: Draft[]; activity: Activity[]; alerts: Alert[]; shipments: Record<string, string>[]; exceptions: ExceptionRow[] }
 export interface AIStatus { local: boolean; ollama: boolean; models: string[]; gatewayConfigured: boolean; gatewayModel: string; openaiConfigured: boolean; openaiModel: string }
 export interface MovementProposal { productId: string; productName: string; type: string; quantity: number; document: string; shipment: string; container: string; notes: string; confidence: string }
+import { tx, dateLocale, getLang } from '@/lib/i18n';
 const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 export const apiUrl = (path: string) => base + '/api' + path;
 /** One key per form submit: if the same request is sent twice (double click, retry), the server creates only one record. */
@@ -26,7 +27,7 @@ export async function request<T>(path: string, body?: unknown, signal?: AbortSig
   const response = await fetch(apiUrl(path), { method: body === undefined ? 'GET' : 'POST', credentials: 'include', headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body), signal });
   const data = await response.json().catch(() => ({ error: 'Backend returned an invalid response. Check the server.' }));
   if (response.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('auth-expired'));
-  if (!response.ok) throw new Error(data.error || 'Request failed.');
+  if (!response.ok) throw new Error(tx(data.error || 'Request failed.'));
   return data as T;
 }
-export const displayDate = (value: string) => !value ? '—' : new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(value.length === 10 ? `${value}T12:00:00+05:30` : value));
+export const displayDate = (value: string) => !value ? '—' : new Intl.DateTimeFormat(dateLocale(), getLang() === 'zh' ? { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' } : { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }).format(new Date(value.length === 10 ? `${value}T12:00:00+05:30` : value));

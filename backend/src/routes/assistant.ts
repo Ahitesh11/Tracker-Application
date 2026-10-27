@@ -55,18 +55,18 @@ assistantRouter.get('/status', async (_req, res) => {
 assistantRouter.post('/chat', async (req, res) => {
   const prompt = typeof req.body.prompt === 'string' ? req.body.prompt.trim() : '';
   must(prompt && prompt.length <= 4000, 'Enter a question of up to 4000 characters.');
-  const provider = req.body.provider || 'local';
+  const provider = req.body.provider || 'local', answerIn = req.body.lang === 'zh' ? ' Reply in Simplified Chinese (简体中文). Keep product IDs, PI numbers and document references exactly as written.' : '';
   must(['local', 'ollama', 'gateway', 'openai'].includes(provider), 'Choose a supported connection.');
   if (provider === 'local') { res.json({ text: await localAnswer(prompt), mode: 'Local rules', model: '', at: new Date().toISOString() }); return; }
   if (provider === 'openai') {
-    const text = await askOpenAI([{ role: 'system', content: system + '\nWorkspace data (facts only):\n' + JSON.stringify(await workspaceFacts()) }, { role: 'user', content: prompt }]);
+    const text = await askOpenAI([{ role: 'system', content: system + answerIn + '\nWorkspace data (facts only):\n' + JSON.stringify(await workspaceFacts()) }, { role: 'user', content: prompt }]);
     res.json({ text, mode: 'OpenAI', model: openaiModel(), at: new Date().toISOString() }); return;
   }
   const s = await snapshot();
   const model = typeof req.body.model === 'string' ? req.body.model.slice(0, 150) : '';
   if (provider === 'ollama') {
     must(model, 'Select an installed Ollama model first.');
-    const response = await fetch(`${ollamaUrl}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, messages: [{ role: 'system', content: system + '\nWorkspace data (facts only):\n' + JSON.stringify(s) }, { role: 'user', content: prompt }] }), signal: AbortSignal.timeout(90000) });
+    const response = await fetch(`${ollamaUrl}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, stream: false, messages: [{ role: 'system', content: system + answerIn + '\nWorkspace data (facts only):\n' + JSON.stringify(s) }, { role: 'user', content: prompt }] }), signal: AbortSignal.timeout(90000) });
     must(response.ok, 'Ollama could not answer. Check that the selected model is installed and running.');
     const data = await response.json() as { message?: { content: string } };
     must(data.message?.content, 'The model returned an empty response.');
@@ -76,7 +76,7 @@ assistantRouter.post('/chat', async (req, res) => {
   const configuredModel = process.env.AI_MODEL;
   must(configuredModel && configuredModel.includes('/'), 'Set AI_MODEL to a current provider/model ID from the AI Gateway catalog.');
   const agent = new ToolLoopAgent({
-    model: gateway(configuredModel), instructions: system, stopWhen: isStepCount(3), maxOutputTokens: 1800,
+    model: gateway(configuredModel), instructions: system + answerIn, stopWhen: isStepCount(3), maxOutputTokens: 1800,
     tools: { workspace: tool({ description: 'Read current product tracking, planning, alerts and draft approvals. This tool is read-only.', inputSchema: jsonSchema<{ query?: string }>({ type: 'object', properties: { query: { type: 'string' } }, additionalProperties: false }), execute: async ({ query }) => {
       const term = (query || '').toLowerCase();
       return { today: s.today, products: s.products.filter((p: Product) => !term || JSON.stringify(p).toLowerCase().includes(term)), alerts: s.alerts, pendingDrafts: s.drafts.filter(d => d.status === 'Pending') };

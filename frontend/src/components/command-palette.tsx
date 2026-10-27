@@ -3,22 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import { Search, CornerDownLeft, Package, RefreshCw, Compass } from 'lucide-react';
 import { navigation } from '@/config/navigation';
 import { useWorkspace } from '@/components/workspace-provider';
+import { useI18n } from '@/lib/i18n';
 
 interface Item { id: string; group: string; title: string; hint: string; icon: typeof Search; run: () => void }
 /** Ctrl/⌘+K: jump to any page, open any product, or run a quick action. */
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { data, select, refresh } = useWorkspace(), navigate = useNavigate();
+  const { data, select, refresh } = useWorkspace(), navigate = useNavigate(), { t, lang } = useI18n();
   const [query, setQuery] = useState(''), [index, setIndex] = useState(0), input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
   useEffect(() => { if (open) { setQuery(''); setIndex(0); setTimeout(() => input.current?.focus(), 20); } }, [open]);
   const items = useMemo<Item[]>(() => {
     const q = query.trim().toLowerCase(), match = (text: string) => !q || text.toLowerCase().includes(q);
-    const pages = navigation.filter(n => match(n.label + ' ' + n.description)).map<Item>(n => ({ id: n.path, group: 'GO TO', title: n.label, hint: n.description, icon: n.icon, run: () => navigate(n.path) }));
-    const products = (data?.products || []).filter(p => q && match([p.name, p.id, p.pi, p.customer, p.vendor, p.order].join(' '))).slice(0, 8).map<Item>(p => ({ id: p.id, group: 'PRODUCTS', title: p.name, hint: `${p.pi} · ${p.customer} · ${p.planning.stage}`, icon: Package, run: () => select(p.id) }));
+    const pages = navigation.filter(n => match(`${n.label} ${n.description} ${t(n.label)} ${t(n.description)}`)).map<Item>(n => ({ id: n.path, group: 'GO TO', title: t(n.label), hint: t(n.description), icon: n.icon, run: () => navigate(n.path) }));
+    const products = (data?.products || []).filter(p => q && match([p.name, p.id, p.pi, p.customer, p.vendor, p.order].join(' '))).slice(0, 8).map<Item>(p => ({ id: p.id, group: 'PRODUCTS', title: p.name, hint: `${p.pi} · ${p.customer} · ${t(p.planning.stage)}`, icon: Package, run: () => select(p.id) }));
     const actions: Item[] = [
-      { id: 'refresh', group: 'ACTIONS', title: 'Refresh workspace', hint: 'Reload the latest records', icon: RefreshCw, run: () => void refresh() },
-    ].filter(a => match(a.title));
+      { id: 'refresh', group: 'ACTIONS', title: t('Refresh workspace'), hint: t('Reload the latest records'), icon: RefreshCw, run: () => void refresh() },
+    ].filter(a => match(a.title) || match('Refresh workspace'));
     return [...products, ...pages, ...actions];
-  }, [query, data, navigate, select, refresh]);
+  }, [query, data, navigate, select, refresh, t, lang]);
   useEffect(() => { setIndex(0); }, [query]);
   useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [index]);
   if (!open) return null;
@@ -31,13 +32,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   }
   let lastGroup = '';
   return <div className="palette-backdrop" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className="palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown={onKey}>
-      <div className="palette-input"><Search size={18}/><input ref={input} value={query} onChange={e => setQuery(e.target.value)} placeholder="Search products, PI, customer — or jump to a page…" aria-label="Search" role="combobox" aria-expanded="true" aria-controls="palette-list"/><kbd>Esc</kbd></div>
+    <div className="palette" role="dialog" aria-modal="true" aria-label={t('Command palette')} onKeyDown={onKey}>
+      <div className="palette-input"><Search size={18}/><input ref={input} value={query} onChange={e => setQuery(e.target.value)} placeholder={t('Search products, PI, customer — or jump to a page…')} aria-label={t('Search')} role="combobox" aria-expanded="true" aria-controls="palette-list"/><kbd>Esc</kbd></div>
       <div className="palette-list" id="palette-list" role="listbox" ref={list}>
-        {items.length === 0 && <div className="palette-empty"><Compass size={22}/><p>No results for “{query}”.</p></div>}
-        {items.map((item, i) => { const header = item.group !== lastGroup; lastGroup = item.group; const Icon = item.icon; return <div key={item.group + item.id}>{header && <div className="palette-group">{item.group}</div>}<button className="palette-item" role="option" aria-selected={i === index} onMouseMove={() => setIndex(i)} onClick={() => choose(item)}><Icon size={18}/><div><strong>{item.title}</strong><small>{item.hint}</small></div>{i === index && <CornerDownLeft size={15}/>}</button></div>; })}
+        {items.length === 0 && <div className="palette-empty"><Compass size={22}/><p>{t('No results for “{query}”.', { query })}</p></div>}
+        {items.map((item, i) => { const header = item.group !== lastGroup; lastGroup = item.group; const Icon = item.icon; return <div key={item.group + item.id}>{header && <div className="palette-group">{t(item.group)}</div>}<button className="palette-item" role="option" aria-selected={i === index} onMouseMove={() => setIndex(i)} onClick={() => choose(item)}><Icon size={18}/><div><strong>{item.title}</strong><small>{item.hint}</small></div>{i === index && <CornerDownLeft size={15}/>}</button></div>; })}
       </div>
-      <div className="palette-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>Esc</kbd> close</span></div>
+      <div className="palette-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> {t('navigate')}</span><span><kbd>↵</kbd> {t('open')}</span><span><kbd>Esc</kbd> {t('close')}</span></div>
     </div>
   </div>;
 }

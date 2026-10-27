@@ -6,11 +6,13 @@ import { Badge, Field } from '@/components/operations-ui';
 import { Button } from '@/components/ui/button';
 import { ExceptionForm } from '@/components/exception-form';
 import { ActorField, EvidenceField, useRequestId } from '@/components/form-helpers';
+import { useI18n } from '@/lib/i18n';
 import { displayDate, movementTypes, type Product } from '@/services/workspace-api';
 
 const isLink = (value?: string) => Boolean(value && /^https?:\/\//i.test(value));
+const tabNames = ['Overview', 'Update product', 'Record movement', 'Exceptions', 'History'];
 function Detail({ product: p, close }: { product: Product; close: () => void }) {
-  const { data, mutate, busy } = useWorkspace(), { can } = useAuth(), [requestId, renew] = useRequestId();
+  const { data, mutate, busy } = useWorkspace(), { can } = useAuth(), { t } = useI18n(), [requestId, renew] = useRequestId();
   const allowedMovements = movementTypes.filter(type => can(`movement.${type}`));
   const actions = p.closed ? (can('product.reopen') ? ['Reopen product line'] : []) : [
     ...(can('followup') ? ['Update follow-up'] : []), ...(can('delivery.revise') ? ['Revise delivery date'] : []),
@@ -41,20 +43,20 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
     return () => { document.removeEventListener('keydown', onKey); previous?.focus(); };
   }, [close]);
   const current = actions.includes(action) ? action : actions[0] || '';
-  const balance = p.quantity - p.delivered, noDate = ['Update follow-up', 'Revise delivery date', 'Close product line', 'Reopen product line'];
+  const balance = p.quantity - p.delivered, noDate = ['Update follow-up', 'Revise delivery date', 'Close product line', 'Reopen product line'], unit = t(p.unit);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setSaved('');
     const form = event.currentTarget, values = Object.fromEntries(new FormData(form));
     try {
       if (tab === 'Record movement') {
         await mutate('/workspace/drafts', { ...values, productId: p.id, type: movement, quantity: Number(values.quantity), requestId });
-        setSaved('Draft created. A reviewer approves it in the Approval Inbox before any quantity changes.');
+        setSaved(t('Draft created. A reviewer approves it in the Approval Inbox before any quantity changes.'));
       } else {
         await mutate(`/workspace/products/${p.id}/update`, { ...values, action: current, quantity: Number(values.quantity || 0), shortClose: values.shortClose === 'on', requestId });
-        setSaved('Saved. Planning and alerts have been recalculated.');
+        setSaved(t('Saved. Planning and alerts have been recalculated.'));
       }
       renew(); form.reset();
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to save.'); }
+    } catch (e) { setError(e instanceof Error ? e.message : t('Unable to save.')); }
   }
   const timeline = [
     ['Authorization', p.authorization === 'Approved for Production'], ['Production', p.production === 'Production Completed'], ['Vendor call-out', p.calledOut >= p.quantity],
@@ -62,48 +64,47 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
   ] as const;
   const exceptions = data?.exceptions.filter(e => e.Product_ID === p.id) || [];
   const openExceptions = exceptions.filter(e => e.Status === 'Open').length;
-  const tabs = ['Overview', 'Update product', 'Record movement', `Exceptions${openExceptions ? ` (${openExceptions})` : ''}`, 'History'];
   return <div className="drawer-backdrop" onClick={event => { if (event.target === event.currentTarget) close(); }}>
     <aside className="product-drawer" ref={panel} role="dialog" aria-modal="true" aria-labelledby="product-title">
-      <div className="drawer-header"><div><span className="eyebrow">{p.pi} · {p.id}</span><h2 id="product-title">{p.name}</h2><p>{p.customer} <ArrowRight size={13}/> {p.vendor}</p></div><Button variant="ghost" size="icon" aria-label="Close product details" onClick={close}><X size={20}/></Button></div>
-      <div className="drawer-tabs" role="tablist" aria-label="Product details">{tabs.map(name => { const key = name.replace(/ \(\d+\)$/, ''); return <button key={name} role="tab" id={`detail-${key.replaceAll(' ', '-')}`} aria-selected={tab === key} aria-controls="detail-panel" onClick={() => { setTab(key); setError(''); setSaved(''); }}>{name}</button>; })}</div>
+      <div className="drawer-header"><div><span className="eyebrow">{p.pi} · {p.id}</span><h2 id="product-title">{p.name}</h2><p>{p.customer} <ArrowRight size={13}/> {p.vendor}</p></div><Button variant="ghost" size="icon" aria-label={t('Close product details')} onClick={close}><X size={20}/></Button></div>
+      <div className="drawer-tabs" role="tablist" aria-label={t('Product details')}>{tabNames.map(name => <button key={name} role="tab" id={`detail-${name.replaceAll(' ', '-')}`} aria-selected={tab === name} aria-controls="detail-panel" onClick={() => { setTab(name); setError(''); setSaved(''); }}>{t(name)}{name === 'Exceptions' && openExceptions > 0 ? ` (${openExceptions})` : ''}</button>)}</div>
       <div className="drawer-body" role="tabpanel" id="detail-panel" aria-labelledby={`detail-${tab.replaceAll(' ', '-')}`}>
         {tab === 'Overview' && <>
-          <div className="detail-badges"><Badge>{p.planning.stage}</Badge><Badge>{p.planning.risk}</Badge>{p.quarantined > 0 && <Badge tone="amber">{p.quarantined} in quarantine</Badge>}{openExceptions > 0 && <Badge tone="red">{openExceptions} open exception{openExceptions > 1 ? 's' : ''}</Badge>}</div>
-          {p.closed && <div className="info-banner"><Lock size={18}/><span>Closed on {displayDate(p.closed)} by {p.closedBy}. {p.closedReason}</span></div>}
-          <div className="quantity-flow">{[['Ordered', p.quantity], ['Called out', p.calledOut], ['China', p.china], ['Loaded', p.loaded], ['India', p.india], ['Delivered', p.delivered]].map(([label, value]) => <div key={label}><strong>{value}</strong><span>{label}</span></div>)}</div>
-          <div className="step-list">{timeline.map(([label, complete]) => <div className={complete ? 'done' : ''} key={label}><span>{complete ? '✓' : '○'}</span>{label}</div>)}</div>
-          {!p.closed && <div className="next-action-card"><span className="eyebrow">NEXT ACTION</span><h3>{p.nextAction}</h3><p>{p.owner} · Due {displayDate(p.deadline)}</p></div>}
-          <dl className="detail-grid">{[['Required delivery', displayDate(p.required)], ['Latest instruction', displayDate(p.planning.latestInstruction)], ['Latest production start', displayDate(p.planning.latestStart)], ['Latest completion', displayDate(p.planning.latestComplete)], ['Manufacturing / logistics', `${p.planning.manufacturing} / ${p.planning.logistics} days (+${p.planning.confirmation} confirmation)`], ['Production status', p.production], ['Vendor call-out', p.calledOut ? `${p.calledOut} of ${p.quantity}${p.vendorCommitDate ? ` · vendor promised ${displayDate(p.vendorCommitDate)}` : ''}` : 'Not called out'], ['Original customer date', displayDate(p.originalRequired)], ['Specifications', p.specs], ['Dimensions', p.dimensions], ['Order', p.order], ['Shipment', p.shipment ? `${p.shipment}${p.container ? ' · ' + p.container : ''}` : 'Not allocated']].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || '—'}</dd></div>)}</dl>
+          <div className="detail-badges"><Badge>{p.planning.stage}</Badge><Badge>{p.planning.risk}</Badge>{p.quarantined > 0 && <Badge tone="amber">{t('{n} in quarantine', { n: p.quarantined })}</Badge>}{openExceptions > 0 && <Badge tone="red">{t('{n} open exceptions', { n: openExceptions })}</Badge>}</div>
+          {p.closed && <div className="info-banner"><Lock size={18}/><span>{t('Closed on {date} by {name}.', { date: displayDate(p.closed), name: p.closedBy })} {t(p.closedReason)}</span></div>}
+          <div className="quantity-flow">{[['Ordered', p.quantity], ['Called out', p.calledOut], ['China', p.china], ['Loaded', p.loaded], ['India', p.india], ['Delivered', p.delivered]].map(([label, value]) => <div key={label}><strong>{value}</strong><span>{t(String(label))}</span></div>)}</div>
+          <div className="step-list">{timeline.map(([label, complete]) => <div className={complete ? 'done' : ''} key={label}><span>{complete ? '✓' : '○'}</span>{t(label)}</div>)}</div>
+          {!p.closed && <div className="next-action-card"><span className="eyebrow">{t('NEXT ACTION')}</span><h3>{t(p.nextAction)}</h3><p>{t(p.owner)} · {t('Due {date}', { date: displayDate(p.deadline) })}</p></div>}
+          <dl className="detail-grid">{[['Required delivery', displayDate(p.required)], ['Latest instruction', displayDate(p.planning.latestInstruction)], ['Latest production start', displayDate(p.planning.latestStart)], ['Latest completion', displayDate(p.planning.latestComplete)], ['Manufacturing / logistics', t('{a} / {b} days (+{c} confirmation)', { a: p.planning.manufacturing, b: p.planning.logistics, c: p.planning.confirmation })], ['Production status', t(p.production)], ['Vendor call-out', p.calledOut ? `${p.calledOut} / ${p.quantity}${p.vendorCommitDate ? ' · ' + t('vendor promised {date}', { date: displayDate(p.vendorCommitDate) }) : ''}` : t('Not called out')], ['Original customer date', displayDate(p.originalRequired)], ['Specifications', p.specs], ['Dimensions', p.dimensions], ['Order', p.order], ['Shipment', p.shipment ? `${p.shipment}${p.container ? ' · ' + p.container : ''}` : t('Not allocated')]].map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value || '—'}</dd></div>)}</dl>
         </>}
         {(tab === 'Update product' || tab === 'Record movement') && (tab === 'Update product' ? actions.length === 0 : allowedMovements.length === 0 || Boolean(p.closed))
-          ? <div className="info-banner"><Lock size={18}/><span>{p.closed ? 'This product line is closed.' : 'Your role has no actions here.'}</span></div>
+          ? <div className="info-banner"><Lock size={18}/><span>{p.closed ? t('This product line is closed.') : t('Your role has no actions here.')}</span></div>
           : (tab === 'Update product' || tab === 'Record movement') && <form className="op-form" onSubmit={submit} key={tab + current + movement}>
-          {tab === 'Update product' ? <><Field label="What happened?"><select value={current} onChange={e => { setAction(e.target.value); setSaved(''); }}>{actions.map(value => <option key={value}>{value}</option>)}</select></Field>
+          {tab === 'Update product' ? <><Field label="What happened?"><select value={current} onChange={e => { setAction(e.target.value); setSaved(''); }}>{actions.map(value => <option key={value} value={value}>{t(value)}</option>)}</select></Field>
             {current === 'Update follow-up' && <div className="form-grid"><Field label="Responsible person"><input name="owner" defaultValue={p.owner} required maxLength={100}/></Field><Field label="Next-action deadline"><input type="date" name="deadline" defaultValue={data?.today} required/></Field></div>}
             {current === 'Revise delivery date' && <Field label="Customer-confirmed required date"><input type="date" name="required" defaultValue={p.required} required/></Field>}
-            {current === 'Record vendor call-out' && <div className="form-grid"><Field label={`Units called out (up to ${p.quantity - p.calledOut})`}><input type="number" name="quantity" min="1" max={p.quantity - p.calledOut} step="1" defaultValue={p.quantity - p.calledOut} required/></Field><Field label="Vendor promises delivery by"><input type="date" name="vendorCommitDate" min={data?.today}/></Field></div>}
-            {current === 'Close product line' && <>{balance > 0 && <label className="check-field"><input type="checkbox" name="shortClose"/><span>Close with the remaining {balance} {p.unit} undelivered (short close)</span></label>}<div className="info-banner"><ClipboardCheck size={18}/>Closing needs: no open exceptions, no pending drafts and no goods left in a warehouse or in transit.</div></>}
+            {current === 'Record vendor call-out' && <div className="form-grid"><Field label={t('Units called out (up to {n})', { n: p.quantity - p.calledOut })}><input type="number" name="quantity" min="1" max={p.quantity - p.calledOut} step="1" defaultValue={p.quantity - p.calledOut} required/></Field><Field label="Vendor promises delivery by"><input type="date" name="vendorCommitDate" min={data?.today}/></Field></div>}
+            {current === 'Close product line' && <>{balance > 0 && <label className="check-field"><input type="checkbox" name="shortClose"/><span>{t('Close with the remaining {n} undelivered (short close)', { n: `${balance} ${unit}` })}</span></label>}<div className="info-banner"><ClipboardCheck size={18}/>{t('Closing needs: no open exceptions, no pending drafts and no goods left in a warehouse or in transit.')}</div></>}
             {!noDate.includes(current) && <Field label="Actual event date"><input type="date" name="date" defaultValue={data?.today} max={data?.today} required/></Field>}
             {!['Update follow-up', 'Revise delivery date'].includes(current) && <EvidenceField/>}
           </> : <>
-            <div className="info-banner"><ClipboardCheck size={18}/>This creates a draft. Quantities change only after a reviewer approves it in the inbox.</div>
-            <Field label="Movement"><select value={movement} onChange={e => { setMovement(e.target.value); setSaved(''); }}>{allowedMovements.map(value => <option key={value}>{value}</option>)}</select></Field>
-            <div className="form-grid"><Field label={`Quantity (${p.unit})`}><input type="number" name="quantity" min="1" max={p.quantity} step="1" required defaultValue="1"/></Field><Field label="Carton reference (optional)"><input name="carton" maxLength={100} placeholder="CTN-…"/></Field></div>
-            <Field label="Unique receipt / document reference"><input name="document" maxLength={200} required placeholder="e.g. CN-RECEIPT-20261024-01"/></Field>
+            <div className="info-banner"><ClipboardCheck size={18}/>{t('This creates a draft. Quantities change only after a reviewer approves it in the inbox.')}</div>
+            <Field label="Movement"><select value={movement} onChange={e => { setMovement(e.target.value); setSaved(''); }}>{allowedMovements.map(value => <option key={value} value={value}>{t(value)}</option>)}</select></Field>
+            <div className="form-grid"><Field label={`${t('Quantity')} (${unit})`}><input type="number" name="quantity" min="1" max={p.quantity} step="1" required defaultValue="1"/></Field><Field label="Carton reference (optional)"><input name="carton" maxLength={100} placeholder="CTN-…"/></Field></div>
+            <Field label="Unique receipt / document reference"><input name="document" maxLength={200} required placeholder={t('e.g. CN-RECEIPT-20261024-01')}/></Field>
             {movement === 'Container loading' && <div className="form-grid"><Field label="Shipment reference"><input name="shipment" defaultValue={p.shipment} required maxLength={100}/></Field><Field label="Container number"><input name="container" defaultValue={p.container} required maxLength={100}/></Field></div>}
             <EvidenceField/>
           </>}
           <ActorField/>
-          <Field label={tab === 'Update product' && current === 'Update follow-up' ? 'Next action' : 'Evidence / update note'}><textarea name="notes" required maxLength={2000} rows={4} placeholder="What changed? Include the evidence or document reference."/></Field>
-          {error && <div className="error-banner" role="alert">{error}</div>}{saved && <div className="success-banner" role="status">{saved}</div>}
-          <Button type="submit" disabled={busy}>{busy ? 'Saving…' : tab === 'Record movement' ? 'Create movement draft' : current === 'Close product line' ? 'Close product line' : 'Save product update'}</Button>
+          <Field label={tab === 'Update product' && current === 'Update follow-up' ? 'Next action' : 'Evidence / update note'}><textarea name="notes" required maxLength={2000} rows={4} placeholder={t('What changed? Include the evidence or document reference.')}/></Field>
+          {error && <div className="error-banner" role="alert">{t(error)}</div>}{saved && <div className="success-banner" role="status">{saved}</div>}
+          <Button type="submit" disabled={busy}>{busy ? t('Saving…') : tab === 'Record movement' ? t('Create movement draft') : current === 'Close product line' ? t('Close product line') : t('Save product update')}</Button>
         </form>}
         {tab === 'Exceptions' && <>
-          {exceptions.length === 0 ? <p className="muted">No exceptions for this product.</p> : <div className="exception-list">{exceptions.map(e => <article key={e.Exception_ID}><div><strong>{e.Problem_Type}</strong><Badge tone={e.Status === 'Open' ? (e.Deadline < (data?.today || '') ? 'red' : 'amber') : 'green'}>{e.Status}</Badge></div><p>{e.Description}</p><small>{e.Responsible_Person} · fix by {displayDate(e.Deadline)}{e.Quarantine === 'yes' ? ` · ${e.Quantity} quarantined` : ''}{e.Resolution_Notes ? ` · ${e.Resolution_Notes}` : ''}</small></article>)}</div>}
-          {!p.closed && can('exception.raise') && <><h3 className="drawer-subtitle">Raise a new exception</h3><ExceptionForm productId={p.id}/></>}
+          {exceptions.length === 0 ? <p className="muted">{t('No exceptions for this product.')}</p> : <div className="exception-list">{exceptions.map(e => <article key={e.Exception_ID}><div><strong>{t(e.Problem_Type)}</strong><Badge tone={e.Status === 'Open' ? (e.Deadline < (data?.today || '') ? 'red' : 'amber') : 'green'}>{e.Status}</Badge></div><p>{e.Description}</p><small>{e.Responsible_Person} · {t('fix by {date}', { date: displayDate(e.Deadline) })}{e.Quarantine === 'yes' ? ` · ${t('{n} quarantined', { n: e.Quantity })}` : ''}{e.Resolution_Notes ? ` · ${e.Resolution_Notes}` : ''}</small></article>)}</div>}
+          {!p.closed && can('exception.raise') && <><h3 className="drawer-subtitle">{t('Raise a new exception')}</h3><ExceptionForm productId={p.id}/></>}
         </>}
-        {tab === 'History' && <div className="activity-timeline">{data?.activity.filter(a => a.productId === p.id).map(a => <article key={a.id}><span className="timeline-dot"/><strong>{a.action}{a.quantity ? ` · ${a.quantity} ${p.unit}` : ''}</strong><small>{displayDate(a.at)} · {a.actor} · {a.document || a.source}</small><p>{a.notes}</p>{a.evidence && (isLink(a.evidence) ? <a className="text-link" href={a.evidence} target="_blank" rel="noreferrer noopener">Evidence <ExternalLink size={13}/></a> : <small>Evidence: {a.evidence}</small>)}</article>)}{!data?.activity.some(a => a.productId === p.id) && <p className="muted">No events yet.</p>}</div>}
+        {tab === 'History' && <div className="activity-timeline">{data?.activity.filter(a => a.productId === p.id).map(a => <article key={a.id}><span className="timeline-dot"/><strong>{t(a.action)}{a.quantity ? ` · ${a.quantity} ${unit}` : ''}</strong><small>{displayDate(a.at)} · {a.actor} · {a.document || t(a.source)}</small><p>{a.notes}</p>{a.evidence && (isLink(a.evidence) ? <a className="text-link" href={a.evidence} target="_blank" rel="noreferrer noopener">{t('Evidence')} <ExternalLink size={13}/></a> : <small>{t('Evidence')}: {a.evidence}</small>)}</article>)}{!data?.activity.some(a => a.productId === p.id) && <p className="muted">{t('No events yet.')}</p>}</div>}
       </div>
     </aside>
   </div>;

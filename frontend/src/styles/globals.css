@@ -3,7 +3,7 @@
   --color-primary: var(--accent);
   --color-primary-foreground: var(--on-accent);
   --color-border: var(--border);
-  --font-sans: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --font-sans: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", Roboto, Arial, sans-serif;
 }
 
 /* ───────────── Design tokens ───────────── */
@@ -41,7 +41,7 @@
   --radius: 16px;
   --radius-sm: 10px;
   --ring: 0 0 0 3px rgba(91, 77, 224, .25);
-  --font: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --font: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", Roboto, Arial, sans-serif;
   font-family: var(--font);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -609,3 +609,15 @@ textarea { resize: vertical; min-height: 84px; }
 .history-row small { color: var(--text-3); }
 .history-row span { color: var(--text-2); }
 @media (max-width: 860px) { .user-chip div { display: none; } .quantity-flow { grid-template-columns: repeat(3, 1fr); } .quantity-flow > div:nth-child(3) { border-right: 0; } .quantity-flow > div:nth-child(n+4) { border-top: 1px solid var(--border); } }
+
+/* Language switch and Chinese typography */
+.lang-switch { display: inline-flex; padding: 3px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm); }
+.lang-switch button { border: 0; background: transparent; padding: 4px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; color: var(--text-3); line-height: 1.4; }
+.lang-switch button:hover { color: var(--text); }
+.lang-switch button[aria-pressed="true"] { background: linear-gradient(135deg, #5b4de0, #8b4de0); color: #fff; }
+.login { position: relative; }
+.login-lang { position: absolute; top: 18px; right: 20px; z-index: 2; }
+@media (max-width: 860px) { .header-right .lang-switch { order: -1; } }
+/* Wide tracking and tight negative tracking look wrong with Chinese characters. */
+html:lang(zh-CN) * { letter-spacing: 0 !important; }
+html:lang(zh-CN) .eyebrow, html:lang(zh-CN) .workspace-label, html:lang(zh-CN) .pipeline-number { text-transform: none; }

@@ -64,6 +64,11 @@ The repository root is a single Vercel project: [vercel.json](vercel.json) build
 
 Every `git push` to `main` redeploys everything. Turn off Vercel Authentication if the URL should open without a Vercel login. The app has no sign-in of its own, so anyone with the URL can use it.
 
+## Language (English / 简体中文)
+Use the **EN | 中文** switch in the header (or on the sign-in page). The choice is remembered in the browser; a browser set to Chinese starts in Chinese. Menus, forms, statuses, alerts, dates and the backend's error messages are translated. Names, notes, products and other text that people type are shown as entered. The AI Assistant answers in Chinese when OpenAI, Ollama or AI Gateway is selected; the built-in local rules answer in English only.
+
+To add or change a translation, edit `frontend/src/i18n/zh.json` (English text is the key; sentences with numbers or names are rebuilt in `frontend/src/i18n/patterns.ts`). `npm test` fails if a text used by the screens has no Chinese translation.
+
 ## How it works
 - **Flow**: PI → approve → instruction → acknowledgment / start → production ready → **vendor call-out** → China receiving → container loading → dispatch → India receiving → customer delivery (partial returns allowed) → **close product line**. Each confirmation is a separate record; the stage is derived from the quantities.
 - **Planning** works backwards: required delivery − (transit + buffers) = latest completion; minus manufacturing days = latest start; minus the instruction confirmation buffer (default 7 days) = latest instruction. Category lead times are editable in the app and every change is logged.
