@@ -29,10 +29,10 @@ Without the three Supabase variables the API answers HTTP 503 ("Supabase is not 
 
 ## Run locally
 ```powershell
-npm.cmd run dev:backend      # http://127.0.0.1:3001  (API docs at /api/docs)
-npm.cmd run dev:frontend     # http://127.0.0.1:5173  (proxies /api to the backend)
+npm.cmd install        # first time only
+npm.cmd run dev        # backend on http://127.0.0.1:3001 and frontend on http://127.0.0.1:5173
 ```
-`npm test` builds the backend and runs the unit tests (movement rules, planning, alerts, Supabase client).
+Open http://127.0.0.1:5173. `npm run dev:backend` and `npm run dev:frontend` start each part separately (API docs at `/api/docs`). `npm test` builds the backend and runs the unit tests (movement rules, planning, alerts, Supabase client).
 
 ## Deploy on Vercel (one project, one push)
 The repository root is a single Vercel project: [vercel.json](vercel.json) builds the frontend (`frontend/dist`) and serves the Express API from [api/index.mjs](api/index.mjs) under `/api`. Frontend and API share one domain, so there is no CORS setup and no `VITE_API_BASE_URL`.
