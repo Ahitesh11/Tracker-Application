@@ -1,18 +1,19 @@
 ﻿import { useEffect, useState } from 'react';
 import { NavLink, Link, Outlet, useLocation } from 'react-router-dom';
-import { Armchair, PanelLeftClose, PanelLeftOpen, RefreshCw, ChevronRight, CircleHelp, Search, Menu, CheckCircle2, X } from 'lucide-react';
+import { Armchair, PanelLeftClose, PanelLeftOpen, RefreshCw, ChevronRight, CircleHelp, Search, Menu, CheckCircle2, X, LogOut } from 'lucide-react';
 import { navigation } from '@/config/navigation';
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/components/workspace-provider';
 import { ProductDetail } from '@/components/product-detail';
 import { CommandPalette } from '@/components/command-palette';
+import { useAuth } from '@/components/auth-provider';
 import { displayDate } from '@/services/workspace-api';
 
 export function Layout() {
   const [collapsed, setCollapsed] = useState(false), [mobileOpen, setMobileOpen] = useState(false), [palette, setPalette] = useState(false);
-  const { data, error, refresh, notice } = useWorkspace();
+  const { data, error, refresh, notice } = useWorkspace(), { enabled, user, logout } = useAuth();
   const location = useLocation(), current = navigation.find(item => item.path === location.pathname);
-  const pending = data?.drafts.filter(d => d.status === 'Pending').length || 0;
+  const pending = data?.drafts.filter(d => d.status === 'Pending').length || 0, openExceptions = data?.exceptions.filter(e => e.Status === 'Open').length || 0;
   useEffect(() => { setMobileOpen(false); document.getElementById('main')?.scrollTo({ top: 0 }); }, [location.pathname]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -28,7 +29,7 @@ export function Layout() {
     <aside className="sidebar">
       <Link to="/" className="brand" aria-label="Forma home"><span className="brand-mark"><Armchair size={22}/></span><span>Tracker<span className="brand-dot">.</span><small></small></span></Link>
       <div className="workspace-label">{collapsed ? 'FMS' : 'WORKSPACE'}</div>
-      <nav aria-label="Main navigation">{navigation.map(({ path, label, icon: Icon }) => <NavLink key={path} to={path} end={path === '/'} title={label} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><Icon size={18}/><span className="nav-label">{label}</span>{path === '/approvals' && pending > 0 && <span className="nav-count">{pending}</span>}</NavLink>)}</nav>
+      <nav aria-label="Main navigation">{navigation.map(({ path, label, icon: Icon }) => <NavLink key={path} to={path} end={path === '/'} title={label} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><Icon size={18}/><span className="nav-label">{label}</span>{path === '/approvals' && pending > 0 && <span className="nav-count">{pending}</span>}{path === '/exceptions' && openExceptions > 0 && <span className="nav-count">{openExceptions}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">{collapsed ? <div className="workspace-profile" style={{ justifyContent: 'center' }}><span className="avatar">T</span></div> : <div className="workspace-profile"><span className="avatar">LW</span><div><strong></strong><small>India ↔ China</small></div><span className="online-dot" title="Backend online"/></div>}</div>
     </aside>
     <div className="main-shell">
@@ -41,6 +42,7 @@ export function Layout() {
         <div className="header-right">
           <button className="search-trigger" onClick={() => setPalette(true)} aria-label="Search (Ctrl+K)"><Search size={16}/><span>Search products, pages…</span><kbd>Ctrl K</kbd></button>
           <Link to="/guide" title="How it works" aria-label="How it works"><CircleHelp size={19}/></Link>
+          {enabled && user && <div className="user-chip" title={user.roleLabel}><span className="avatar">{user.name.slice(0, 2).toUpperCase()}</span><div><strong>{user.name}</strong><small>{user.roleLabel}</small></div><button className="icon-btn" onClick={() => void logout()} aria-label="Sign out" title="Sign out"><LogOut size={17}/></button></div>}
         </div>
       </header>
       <main id="main" className="content" tabIndex={-1}>

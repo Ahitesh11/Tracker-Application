@@ -8,8 +8,9 @@ export function WorkspaceProvider({ children, initialData = null }: { children: 
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => { if (!notice) return; const timer = setTimeout(() => setNotice(''), 4500); return () => clearTimeout(timer); }, [notice]);
   async function mutate(path: string, body: unknown) {
+    if (busy) return; // a second click while saving is ignored
     setBusy(true);
-    try { const payload=body&&typeof body==='object'?{...body,revision:data?.revision}:body; const result = await request<WorkspaceData>(path, payload); setData(result); setError(''); setNotice('Saved. Tracking and planning are up to date.'); }
+    try { const payload = body && typeof body === 'object' ? { ...body, revision: data?.revision } : body; const result = await request<WorkspaceData>(path, payload); setData(result); setError(''); setNotice('Saved. Tracking and planning are up to date.'); }
     finally { setBusy(false); }
   }
   return <Context.Provider value={{ data, error, busy, refresh, mutate, selected, select, notice }}>{children}</Context.Provider>;

@@ -27,6 +27,23 @@ CORS_ORIGINS=<only needed when the frontend is on a different domain>
 ```
 Without the three Supabase variables the API answers HTTP 503 ("Supabase is not configured").
 
+### 3. Sign-in and roles (optional, recommended once the app is online)
+Set `APP_USERS` on the backend to turn login on: `name:role:password`, separated by commas.
+```
+APP_USERS=ravi:india:Pass1,li:china:Pass2,wang:warehouse:Pass3,boss:management:Pass4
+```
+Without it the app is open and everyone acts as Management. With it, every request needs a signed session (12 hours, HttpOnly cookie), the signed-in name is written to the audit log, and the backend enforces what each role may do:
+
+| Role | Can do |
+|---|---|
+| India Controller | create products, authorize production, revise delivery date, India receiving / delivery / return drafts, approve or reject drafts, close product lines |
+| China Controller | production instruction, acknowledgment, start, complete, vendor call-out, China receiving and loading drafts, shipments, resolve exceptions |
+| Warehouse / Logistics | create movement drafts (receiving, loading, delivery, return), shipments, raise exceptions |
+| Management | everything, plus reopening product lines and exceptions, editing lead times and downloading the backup |
+
+### 4. AI (optional)
+`OPENAI_API_KEY` (and optionally `OPENAI_MODEL`, default `gpt-4o-mini`) enables OpenAI in the AI Assistant: chat answers over a compact summary of your workspace, and **Read a receipt or message**, which turns pasted text into movement *proposals*. Proposals only become drafts when an operator clicks create, and a draft never changes stock until a reviewer approves it. Ollama and AI Gateway are also supported (see `.env.example`).
+
 ## Run locally
 ```powershell
 npm.cmd install        # first time only
@@ -48,8 +65,11 @@ The repository root is a single Vercel project: [vercel.json](vercel.json) build
 Every `git push` to `main` redeploys everything. Turn off Vercel Authentication if the URL should open without a Vercel login. The app has no sign-in of its own, so anyone with the URL can use it.
 
 ## How it works
-- **Stage** is derived from quantities: authorization → production → China received → loaded → India received → delivered.
-- **Planning** works backwards: required delivery − (transit + buffers) = latest completion; minus manufacturing days = latest start. Category lead times are editable in the app.
+- **Flow**: PI → approve → instruction → acknowledgment / start → production ready → **vendor call-out** → China receiving → container loading → dispatch → India receiving → customer delivery (partial returns allowed) → **close product line**. Each confirmation is a separate record; the stage is derived from the quantities.
+- **Planning** works backwards: required delivery − (transit + buffers) = latest completion; minus manufacturing days = latest start; minus the instruction confirmation buffer (default 7 days) = latest instruction. Category lead times are editable in the app and every change is logged.
+- **Exceptions**: damage, shortage, late vendor and similar problems get an owner and a deadline; damaged or missing units can be held in **quarantine** so they cannot be loaded; resolving needs a note and, for quarantined units, a decision (release to stock or remove). Management can reopen.
+- **Closing**: needs no open exceptions, no pending drafts and no goods left in a warehouse or in transit; closing with an undelivered balance (short close) needs confirmation and a reason. A closed line is locked until Management reopens it.
+- **Duplicate clicks**: every form sends a request key, so retrying a save never creates a second record.
 - **Approval inbox**: a movement draft changes stock only when approved, validates quantities (ordered ≥ China ≥ loaded ≥ India ≥ delivered) and posts once per document reference.
 - **Action Centre** recomputes overdue work and missing steps whenever data is requested.
 - **Assistant**: local rules by default; optional Ollama or AI Gateway with a read-only workspace tool. It cannot approve or send anything.
