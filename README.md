@@ -41,6 +41,11 @@ Without it the app is open and everyone acts as Management. With it, every reque
 | Warehouse / Logistics | create movement drafts (receiving, loading, delivery, return), shipments, raise exceptions |
 | Management | everything, plus reopening product lines and exceptions, editing lead times and downloading the backup |
 
+### 3b. Photos and AI receiving audit
+- **Container loading** and **India receiving** drafts need at least one photo (camera or gallery, up to 8, shrunk in the browser). Photos go to the private Supabase Storage bucket `shipment-evidence` through the backend; they are shown with short-lived signed links.
+- Set `SUPABASE_SERVICE_ROLE_KEY` on the backend (Project Settings → API). The bucket is created on the first upload, or run [supabase/storage.sql](supabase/storage.sql).
+- When an India receiving draft is created, the AI (needs `OPENAI_API_KEY`) compares the China loading photos with the India receiving photos and the quantities, and shows **Match / Mismatch / Needs review** in the Approval Inbox with findings. It only advises: approving a *Mismatch* needs an explicit confirmation, and a reviewer still decides.
+
 ### 4. AI (optional)
 `OPENAI_API_KEY` (and optionally `OPENAI_MODEL`, default `gpt-4o-mini`) enables OpenAI in the AI Assistant: chat answers over a compact summary of your workspace, and **Read a receipt or message**, which turns pasted text into movement *proposals*. Proposals only become drafts when an operator clicks create, and a draft never changes stock until a reviewer approves it. Ollama and AI Gateway are also supported (see `.env.example`).
 

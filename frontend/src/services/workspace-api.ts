@@ -9,8 +9,9 @@ export interface Product {
 }
 export interface LeadTime { category: string; subcategory: string; manufacturing: number; transit: number; chinaBuffer: number; consolidation: number; customs: number; delivery: number; safety: number; confirmation?: number }
 export const movementTypes = ['China receiving', 'Container loading', 'India receiving', 'Customer delivery', 'Customer return'] as const;
-export interface Draft { id: string; productId: string; type: string; quantity: number; document: string; carton: string; shipment: string; container: string; notes: string; confidence: string; status: string; duplicate: boolean; createdAt: string; createdBy?: string; evidence?: string; reviewedBy?: string }
-export interface Activity { id: string; productId: string; action: string; quantity: number; document: string; notes: string; actor: string; at: string; source: string; carton?: string; shipment?: string; container?: string; evidence?: string }
+export interface Audit { status: 'Match' | 'Mismatch' | 'Needs review' | 'Unavailable'; summary: string; findings: string[]; loadedSeen: number | null; receivedSeen: number | null; damageSeen: boolean; expectedQuantity: number; shortfall: number; model: string; at: string }
+export interface Draft { photos?: string[]; audit?: Audit; requestId?: string; id: string; productId: string; type: string; quantity: number; document: string; carton: string; shipment: string; container: string; notes: string; confidence: string; status: string; duplicate: boolean; createdAt: string; createdBy?: string; evidence?: string; reviewedBy?: string }
+export interface Activity { photos?: string[]; id: string; productId: string; action: string; quantity: number; document: string; notes: string; actor: string; at: string; source: string; carton?: string; shipment?: string; container?: string; evidence?: string }
 export interface Alert { id: string; productId: string; title: string; detail: string; owner: string; severity: string; due: string }
 /** Exception records use the workbook-style keys stored by the backend. */
 export type ExceptionRow = Record<'Exception_ID' | 'Product_ID' | 'Problem_Type' | 'Description' | 'Quantity' | 'Quarantine' | 'Responsible_Person' | 'Date_Identified' | 'Deadline' | 'Status' | 'Resolution_Notes' | 'Disposition' | 'Raised_By' | 'Resolved_By' | 'Resolved_Date', string>;

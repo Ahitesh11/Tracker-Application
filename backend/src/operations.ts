@@ -14,8 +14,9 @@ export interface Product {
 export interface LeadTime { category: string; subcategory: string; manufacturing: number; transit: number; chinaBuffer: number; consolidation: number; customs: number; delivery: number; safety: number; confirmation?: number }
 export const movements = ['China receiving', 'Container loading', 'India receiving', 'Customer delivery', 'Customer return'] as const;
 export type Movement = typeof movements[number];
-export interface Draft { id: string; productId: string; type: Movement; quantity: number; document: string; carton: string; shipment: string; container: string; notes: string; confidence: string; status: string; createdAt: string; createdBy?: string; evidence?: string; requestId?: string; reviewedBy?: string; reviewedAt?: string }
-export interface Activity { id: string; productId: string; action: string; quantity: number; document: string; notes: string; actor: string; at: string; source: string; carton?: string; shipment?: string; container?: string; evidence?: string; requestId?: string }
+export interface Draft { id: string; productId: string; type: Movement; quantity: number; document: string; carton: string; shipment: string; container: string; notes: string; confidence: string; status: string; createdAt: string; createdBy?: string; evidence?: string; requestId?: string; reviewedBy?: string; reviewedAt?: string; photos?: string[]; audit?: Audit }
+export interface Audit { status: 'Match' | 'Mismatch' | 'Needs review' | 'Unavailable'; summary: string; findings: string[]; loadedSeen: number | null; receivedSeen: number | null; damageSeen: boolean; expectedQuantity: number; shortfall: number; model: string; at: string }
+export interface Activity { id: string; productId: string; action: string; quantity: number; document: string; notes: string; actor: string; at: string; source: string; carton?: string; shipment?: string; container?: string; evidence?: string; requestId?: string; photos?: string[] }
 export interface Store { version: number; revision?: number; source: string; importedAt: string; products: Product[]; leads: LeadTime[]; drafts: Draft[]; activity: Activity[]; shipments: Record<string, string>[]; exceptions: Record<string, string>[] }
 
 export const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -124,7 +125,7 @@ export function applyMovement(s: Store, d: Draft, actor: string) {
   p.owner = p.india > p.delivered ? 'India Controller' : 'China Controller';
   p.nextAction = d.type === 'Customer return' ? 'Decide what happens to the returned units: redeliver or raise an exception' : p.delivered === p.quantity ? 'Delivery complete: close the product line' : p.india > p.delivered ? 'Schedule customer delivery' : p.loaded > p.india ? 'Track shipment and prepare India receiving' : 'Allocate warehouse goods to a shipment';
   p.deadline = p.required;
-  s.activity.unshift({ id: randomUUID(), productId: p.id, action: d.type, quantity: d.quantity, document: d.document, notes: d.notes, actor, at: new Date().toISOString(), source: 'Operator approval', carton: d.carton, shipment: d.shipment, container: d.container, evidence: d.evidence });
+  s.activity.unshift({ id: randomUUID(), productId: p.id, action: d.type, quantity: d.quantity, document: d.document, notes: d.notes, actor, at: new Date().toISOString(), source: 'Operator approval', carton: d.carton, shipment: d.shipment, container: d.container, evidence: d.evidence, photos: d.photos?.length ? d.photos : undefined });
 }
 
 /** Vendor call-out: the ready goods the China team asks the vendor to hand over. */

@@ -32,6 +32,9 @@ export const patterns: Pattern[] = [
   [/^Text field exceeds (\d+) characters\.$/, m => `文本不能超过 ${m[1]} 个字符。`],
   [/^Number must be between (\d+) and (\d+)\.$/, m => `数字必须在 ${m[1]} 到 ${m[2]} 之间。`],
   [/^Your role \((.+)\) is not allowed to do this\.$/, (m, t) => `您的角色（${t(m[1])}）无权执行此操作。`],
+  [/^Row (\d+): product name, vendor and category are required\.$/, m => `第 ${m[1]} 行：产品名称、供应商和类别为必填项。`],
+  [/^Row (\d+): choose an existing lead-time category\.$/, m => `第 ${m[1]} 行：请选择已有的周期类别。`],
+  [/^Row (\d+): quantity must be a positive whole number\.$/, m => `第 ${m[1]} 行：数量必须是正整数。`],
   [/^Supabase request failed \((\d+)\)\.$/, m => `Supabase 请求失败（${m[1]}）。`],
   [/^OpenAI could not answer \((\d+)\)\./, m => `OpenAI 无法回答（${m[1]}）。`],
 ];

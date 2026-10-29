@@ -5,14 +5,14 @@ import { useAuth } from '@/components/auth-provider';
 import { Badge, Field } from '@/components/operations-ui';
 import { Button } from '@/components/ui/button';
 import { ExceptionForm } from '@/components/exception-form';
-import { ActorField, EvidenceField, useRequestId } from '@/components/form-helpers';
+import { ActorField, EvidenceField, PhotoField, PhotoList, useRequestId } from '@/components/form-helpers';
 import { useI18n } from '@/lib/i18n';
-import { displayDate, movementTypes, type Product } from '@/services/workspace-api';
+import { displayDate, movementTypes, request, type Product } from '@/services/workspace-api';
 
 const isLink = (value?: string) => Boolean(value && /^https?:\/\//i.test(value));
 const tabNames = ['Overview', 'Update product', 'Record movement', 'Exceptions', 'History'];
 function Detail({ product: p, close }: { product: Product; close: () => void }) {
-  const { data, mutate, busy } = useWorkspace(), { can } = useAuth(), { t } = useI18n(), [requestId, renew] = useRequestId();
+  const { data, mutate, busy, refresh } = useWorkspace(), { can } = useAuth(), { t } = useI18n(), [requestId, renew] = useRequestId();
   const allowedMovements = movementTypes.filter(type => can(`movement.${type}`));
   const actions = p.closed ? (can('product.reopen') ? ['Reopen product line'] : []) : [
     ...(can('followup') ? ['Update follow-up'] : []), ...(can('delivery.revise') ? ['Revise delivery date'] : []),
@@ -24,7 +24,7 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
     ...(p.production === 'Production Completed' && p.calledOut < p.quantity && can('callout') ? ['Record vendor call-out'] : []),
     ...(can('product.close') ? ['Close product line'] : []),
   ];
-  const [tab, setTab] = useState('Overview'), [action, setAction] = useState(actions[0] || ''), [movement, setMovement] = useState<string>(allowedMovements[0] || 'China receiving'), [error, setError] = useState(''), [saved, setSaved] = useState('');
+  const [tab, setTab] = useState('Overview'), [action, setAction] = useState(actions[0] || ''), [movement, setMovement] = useState<string>(allowedMovements[0] || 'China receiving'), [error, setError] = useState(''), [saved, setSaved] = useState(''), [photos, setPhotos] = useState<string[]>([]);
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -49,8 +49,14 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
     const form = event.currentTarget, values = Object.fromEntries(new FormData(form));
     try {
       if (tab === 'Record movement') {
-        await mutate('/workspace/drafts', { ...values, productId: p.id, type: movement, quantity: Number(values.quantity), requestId });
+        const needsPhotos = movement === 'Container loading' || movement === 'India receiving';
+        if (needsPhotos && photos.length === 0) throw new Error(movement === 'Container loading' ? 'Attach at least one photo of the goods loaded in the container.' : 'Attach at least one photo of the goods received in India.');
+        const result = await mutate('/workspace/drafts', { ...values, productId: p.id, type: movement, quantity: Number(values.quantity), photos: needsPhotos ? photos : [], requestId });
+        const draft = result?.drafts.find(d => d.requestId === requestId);
         setSaved(t('Draft created. A reviewer approves it in the Approval Inbox before any quantity changes.'));
+        setPhotos([]);
+        // India receiving: the AI compares the loading photos with these receiving photos right away.
+        if (movement === 'India receiving' && draft) { setSaved(t('Draft created. The AI is auditing the received goods…')); void request(`/workspace/drafts/${draft.id}/audit`, {}).then(() => refresh()).then(() => setSaved(t('Draft created and audited by AI. A reviewer approves it in the Approval Inbox.'))).catch(() => setSaved(t('Draft created. The AI audit could not run; run it from the Approval Inbox.'))); }
       } else {
         await mutate(`/workspace/products/${p.id}/update`, { ...values, action: current, quantity: Number(values.quantity || 0), shortClose: values.shortClose === 'on', requestId });
         setSaved(t('Saved. Planning and alerts have been recalculated.'));
@@ -67,7 +73,7 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
   return <div className="drawer-backdrop" onClick={event => { if (event.target === event.currentTarget) close(); }}>
     <aside className="product-drawer" ref={panel} role="dialog" aria-modal="true" aria-labelledby="product-title">
       <div className="drawer-header"><div><span className="eyebrow">{p.pi} · {p.id}</span><h2 id="product-title">{p.name}</h2><p>{p.customer} <ArrowRight size={13}/> {p.vendor}</p></div><Button variant="ghost" size="icon" aria-label={t('Close product details')} onClick={close}><X size={20}/></Button></div>
-      <div className="drawer-tabs" role="tablist" aria-label={t('Product details')}>{tabNames.map(name => <button key={name} role="tab" id={`detail-${name.replaceAll(' ', '-')}`} aria-selected={tab === name} aria-controls="detail-panel" onClick={() => { setTab(name); setError(''); setSaved(''); }}>{t(name)}{name === 'Exceptions' && openExceptions > 0 ? ` (${openExceptions})` : ''}</button>)}</div>
+      <div className="drawer-tabs" role="tablist" aria-label={t('Product details')}>{tabNames.map(name => <button key={name} role="tab" id={`detail-${name.replaceAll(' ', '-')}`} aria-selected={tab === name} aria-controls="detail-panel" onClick={() => { setTab(name); setError(''); setSaved(''); setPhotos([]); }}>{t(name)}{name === 'Exceptions' && openExceptions > 0 ? ` (${openExceptions})` : ''}</button>)}</div>
       <div className="drawer-body" role="tabpanel" id="detail-panel" aria-labelledby={`detail-${tab.replaceAll(' ', '-')}`}>
         {tab === 'Overview' && <>
           <div className="detail-badges"><Badge>{p.planning.stage}</Badge><Badge>{p.planning.risk}</Badge>{p.quarantined > 0 && <Badge tone="amber">{t('{n} in quarantine', { n: p.quarantined })}</Badge>}{openExceptions > 0 && <Badge tone="red">{t('{n} open exceptions', { n: openExceptions })}</Badge>}</div>
@@ -89,10 +95,12 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
             {!['Update follow-up', 'Revise delivery date'].includes(current) && <EvidenceField/>}
           </> : <>
             <div className="info-banner"><ClipboardCheck size={18}/>{t('This creates a draft. Quantities change only after a reviewer approves it in the inbox.')}</div>
-            <Field label="Movement"><select value={movement} onChange={e => { setMovement(e.target.value); setSaved(''); }}>{allowedMovements.map(value => <option key={value} value={value}>{t(value)}</option>)}</select></Field>
+            <Field label="Movement"><select value={movement} onChange={e => { setMovement(e.target.value); setSaved(''); setPhotos([]); }}>{allowedMovements.map(value => <option key={value} value={value}>{t(value)}</option>)}</select></Field>
             <div className="form-grid"><Field label={`${t('Quantity')} (${unit})`}><input type="number" name="quantity" min="1" max={p.quantity} step="1" required defaultValue="1"/></Field><Field label="Carton reference (optional)"><input name="carton" maxLength={100} placeholder="CTN-…"/></Field></div>
             <Field label="Unique receipt / document reference"><input name="document" maxLength={200} required placeholder={t('e.g. CN-RECEIPT-20261024-01')}/></Field>
             {movement === 'Container loading' && <div className="form-grid"><Field label="Shipment reference"><input name="shipment" defaultValue={p.shipment} required maxLength={100}/></Field><Field label="Container number"><input name="container" defaultValue={p.container} required maxLength={100}/></Field></div>}
+            {movement === 'Container loading' && <PhotoField kind="loading" label="Photos of the goods loaded in the container" required paths={photos} setPaths={setPhotos}/>}
+            {movement === 'India receiving' && <PhotoField kind="receiving" label="Photos of the goods received in India" required paths={photos} setPaths={setPhotos}/>}
             <EvidenceField/>
           </>}
           <ActorField/>
@@ -104,7 +112,7 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
           {exceptions.length === 0 ? <p className="muted">{t('No exceptions for this product.')}</p> : <div className="exception-list">{exceptions.map(e => <article key={e.Exception_ID}><div><strong>{t(e.Problem_Type)}</strong><Badge tone={e.Status === 'Open' ? (e.Deadline < (data?.today || '') ? 'red' : 'amber') : 'green'}>{e.Status}</Badge></div><p>{e.Description}</p><small>{e.Responsible_Person} · {t('fix by {date}', { date: displayDate(e.Deadline) })}{e.Quarantine === 'yes' ? ` · ${t('{n} quarantined', { n: e.Quantity })}` : ''}{e.Resolution_Notes ? ` · ${e.Resolution_Notes}` : ''}</small></article>)}</div>}
           {!p.closed && can('exception.raise') && <><h3 className="drawer-subtitle">{t('Raise a new exception')}</h3><ExceptionForm productId={p.id}/></>}
         </>}
-        {tab === 'History' && <div className="activity-timeline">{data?.activity.filter(a => a.productId === p.id).map(a => <article key={a.id}><span className="timeline-dot"/><strong>{t(a.action)}{a.quantity ? ` · ${a.quantity} ${unit}` : ''}</strong><small>{displayDate(a.at)} · {a.actor} · {a.document || t(a.source)}</small><p>{a.notes}</p>{a.evidence && (isLink(a.evidence) ? <a className="text-link" href={a.evidence} target="_blank" rel="noreferrer noopener">{t('Evidence')} <ExternalLink size={13}/></a> : <small>{t('Evidence')}: {a.evidence}</small>)}</article>)}{!data?.activity.some(a => a.productId === p.id) && <p className="muted">{t('No events yet.')}</p>}</div>}
+        {tab === 'History' && <div className="activity-timeline">{data?.activity.filter(a => a.productId === p.id).map(a => <article key={a.id}><span className="timeline-dot"/><strong>{t(a.action)}{a.quantity ? ` · ${a.quantity} ${unit}` : ''}</strong><small>{displayDate(a.at)} · {a.actor} · {a.document || t(a.source)}</small><p>{a.notes}</p>{a.evidence && (isLink(a.evidence) ? <a className="text-link" href={a.evidence} target="_blank" rel="noreferrer noopener">{t('Evidence')} <ExternalLink size={13}/></a> : <small>{t('Evidence')}: {a.evidence}</small>)}<PhotoList paths={a.photos}/></article>)}{!data?.activity.some(a => a.productId === p.id) && <p className="muted">{t('No events yet.')}</p>}</div>}
       </div>
     </aside>
   </div>;

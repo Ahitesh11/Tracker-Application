@@ -1,4 +1,4 @@
-﻿import { LayoutDashboard, ClipboardList, FileText, Factory, PhoneCall, Warehouse, Ship, PackageCheck, Truck, Workflow, ShieldAlert, Sparkles, ChartNoAxesCombined, ListChecks, History, Settings2, BookOpen } from 'lucide-react';
+﻿import { LayoutDashboard, ClipboardList, FileText, Factory, PhoneCall, Warehouse, Ship, PackageCheck, Truck, Workflow, ShieldAlert, Sparkles, ChartNoAxesCombined, ListChecks, History, Settings2, BookOpen, ScanSearch } from 'lucide-react';
 export const navigation = [
   {path:'/',label:'Overview',icon:LayoutDashboard,description:'Your China-to-India operation, in one place.'},
   {path:'/orders',label:'Products & Orders',icon:ClipboardList,description:'Every product line, from final PI to customer delivery.'},
@@ -12,6 +12,7 @@ export const navigation = [
   {path:'/fms',label:'Action Centre',icon:Workflow,description:'What needs attention, who owns it and what to do next.'},
   {path:'/exceptions',label:'Exceptions',icon:ShieldAlert,description:'Damage, shortage and delays: owner, deadline, correction and evidence.'},
   {path:'/approvals',label:'Approval Inbox',icon:ListChecks,description:'Review movement drafts before they change official quantities.'},
+  {path:'/audit-report',label:'Audit Report',icon:ScanSearch,description:'AI check of loaded versus received goods, with photos.'},
   {path:'/ai-assistant',label:'AI Assistant',icon:Sparkles,description:'Ask about products, find pending work, draft follow-ups and read receipts.'},
   {path:'/reports',label:'Reports',icon:ChartNoAxesCombined,description:'Reconciled product counts and quantities from your workspace.'},
   {path:'/activity',label:'Activity Log',icon:History,description:'The permanent record of every movement and operator update.'},
