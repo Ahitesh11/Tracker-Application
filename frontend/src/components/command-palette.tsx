@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, CornerDownLeft, Package, RefreshCw, Compass } from 'lucide-react';
+import { useAuth } from '@/components/auth-provider';
 import { navigation } from '@/config/navigation';
 import { useWorkspace } from '@/components/workspace-provider';
 import { useI18n } from '@/lib/i18n';
@@ -9,17 +10,18 @@ interface Item { id: string; group: string; title: string; hint: string; icon: t
 /** Ctrl/⌘+K: jump to any page, open any product, or run a quick action. */
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { data, select, refresh } = useWorkspace(), navigate = useNavigate(), { t, lang } = useI18n();
+  const { canPage } = useAuth();
   const [query, setQuery] = useState(''), [index, setIndex] = useState(0), input = useRef<HTMLInputElement>(null), list = useRef<HTMLDivElement>(null);
   useEffect(() => { if (open) { setQuery(''); setIndex(0); setTimeout(() => input.current?.focus(), 20); } }, [open]);
   const items = useMemo<Item[]>(() => {
     const q = query.trim().toLowerCase(), match = (text: string) => !q || text.toLowerCase().includes(q);
-    const pages = navigation.filter(n => match(`${n.label} ${n.description} ${t(n.label)} ${t(n.description)}`)).map<Item>(n => ({ id: n.path, group: 'GO TO', title: t(n.label), hint: t(n.description), icon: n.icon, run: () => navigate(n.path) }));
+    const pages = navigation.filter(n => canPage(n.path)).filter(n => match(`${n.label} ${n.description} ${t(n.label)} ${t(n.description)}`)).map<Item>(n => ({ id: n.path, group: 'GO TO', title: t(n.label), hint: t(n.description), icon: n.icon, run: () => navigate(n.path) }));
     const products = (data?.products || []).filter(p => q && match([p.name, p.id, p.pi, p.customer, p.vendor, p.order].join(' '))).slice(0, 8).map<Item>(p => ({ id: p.id, group: 'PRODUCTS', title: p.name, hint: `${p.pi} · ${p.customer} · ${t(p.planning.stage)}`, icon: Package, run: () => select(p.id) }));
     const actions: Item[] = [
       { id: 'refresh', group: 'ACTIONS', title: t('Refresh workspace'), hint: t('Reload the latest records'), icon: RefreshCw, run: () => void refresh() },
     ].filter(a => match(a.title) || match('Refresh workspace'));
     return [...products, ...pages, ...actions];
-  }, [query, data, navigate, select, refresh, t, lang]);
+  }, [query, data, navigate, select, refresh, t, lang, canPage]);
   useEffect(() => { setIndex(0); }, [query]);
   useEffect(() => { list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' }); }, [index]);
   if (!open) return null;

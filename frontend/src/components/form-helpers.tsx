@@ -28,17 +28,17 @@ async function shrink(file: File) {
 }
 /** A photo's private storage path shown as a thumbnail through a short-lived signed link. */
 export function PhotoThumb({ path, onRemove }: { path: string; onRemove?: () => void }) {
-  const [url, setUrl] = useState(''), { t } = useI18n();
-  useEffect(() => { let alive = true; request<{ url: string }>(`/evidence/url?path=${encodeURIComponent(path)}`).then(r => { if (alive) setUrl(r.url); }).catch(() => undefined); return () => { alive = false; }; }, [path]);
-  return <span className="photo-thumb">{url ? <a href={url} target="_blank" rel="noreferrer noopener"><img src={url} alt={t('Uploaded photo')}/></a> : <span className="photo-loading"/>}{onRemove && <button type="button" aria-label={t('Remove photo')} onClick={onRemove}><X size={12}/></button>}</span>;
+  const [url, setUrl] = useState(''), [error, setError] = useState(''), { t } = useI18n();
+  useEffect(() => { let alive = true; request<{ url: string }>(`/evidence/url?path=${encodeURIComponent(path)}`).then(r => { if (alive) setUrl(r.url); }).catch(e => { if (alive) setError(e instanceof Error ? e.message : 'Photo upload failed.'); }); return () => { alive = false; }; }, [path]);
+  return <span className="photo-thumb">{url ? <a href={url} target="_blank" rel="noreferrer noopener"><img src={url} alt={t('Uploaded photo')}/></a> : error ? <small role="alert">{error}</small> : <span className="photo-loading"/>}{onRemove && <button type="button" aria-label={t('Remove photo')} onClick={onRemove}><X size={12}/></button>}</span>;
 }
 export function PhotoList({ paths }: { paths?: string[] }) { return paths?.length ? <div className="photo-row">{paths.map(path => <PhotoThumb key={path} path={path}/>)}</div> : null; }
 /** Camera / gallery photos uploaded one by one to the private Supabase bucket; `paths` are sent with the draft. */
-export function PhotoField({ kind, paths, setPaths, label, required }: { kind: 'loading' | 'receiving'; paths: string[]; setPaths: (paths: string[]) => void; label: string; required?: boolean }) {
+export function PhotoField({ kind, paths, setPaths, label, required, onBusyChange }: { onBusyChange?: (busy: boolean) => void; kind: 'loading' | 'receiving' | 'product'; paths: string[]; setPaths: (paths: string[]) => void; label: string; required?: boolean }) {
   const { t } = useI18n(), [busy, setBusy] = useState(false), [error, setError] = useState(''), max = 8;
   async function pick(files: FileList | null) {
     if (!files?.length) return;
-    setBusy(true); setError('');
+    setBusy(true); onBusyChange?.(true); setError('');
     const added: string[] = [];
     try {
       for (const file of Array.from(files).slice(0, max - paths.length)) {
@@ -46,7 +46,7 @@ export function PhotoField({ kind, paths, setPaths, label, required }: { kind: '
         added.push((await request<{ path: string }>('/evidence', { kind, image: await shrink(file) })).path);
       }
     } catch (e) { setError(e instanceof Error ? e.message : t('Photo upload failed.')); }
-    setPaths([...paths, ...added]); setBusy(false);
+    setPaths([...paths, ...added]); setBusy(false); onBusyChange?.(false);
   }
   return <div className="op-field photo-field"><span>{t(label)}{required ? ' *' : ''}</span>
     <div className="photo-row">{paths.map(path => <PhotoThumb key={path} path={path} onRemove={() => setPaths(paths.filter(p => p !== path))}/>)}

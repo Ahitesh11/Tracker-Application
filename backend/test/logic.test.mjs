@@ -22,7 +22,8 @@ test('stage follows the physical quantities', () => {
   assert.equal(getStage(product({ china: 4, loaded: 4, india: 2 })), 'India warehouse');
   assert.equal(getStage(product({ china: 10, loaded: 10, india: 10, delivered: 10 })), 'Delivered');
   assert.equal(getStage(product({ china: 10, loaded: 10, india: 10, delivered: 10, closed: '2026-10-01' })), 'Closed');
-  assert.equal(getStage(product({ authorization: 'Not Reviewed', production: 'Not Started' })), 'Awaiting authorization');
+  assert.equal(getStage(product({ authorization: 'Not Reviewed', production: 'Not Started' })), 'Awaiting measurement');
+  assert.equal(getStage(product({ authorization: 'Not Reviewed', production: 'Not Started', measurementDate: '2026-01-01' })), 'Awaiting authorization');
 });
 
 test('backward planning: customer date minus logistics, manufacturing and the 7-day confirmation buffer', () => {
@@ -149,4 +150,53 @@ test('Supabase client maps conflicts, bad secrets and a missing schema to clear 
     assert.deepEqual(await storage.save({ ...store([]), revision: 1 }), ['a1']);
     assert.equal(sent.url, 'https://x.supabase.co/rest/v1/rpc/tracker_save'); assert.equal(sent.body.p_secret, 's'); assert.equal(sent.body.p_expected_revision, 1); assert.equal(sent.headers.apikey, 'k');
   } finally { globalThis.fetch = original; }
+});
+
+test('Supabase privileges come from an active database profile, not user metadata', async () => {
+  const { supabaseUser } = await import('../dist/auth.js');
+  const originalFetch = globalThis.fetch;
+  const oldUrl = process.env.SUPABASE_URL, oldKey = process.env.SUPABASE_ANON_KEY;
+  process.env.SUPABASE_URL = 'https://example.supabase.co'; process.env.SUPABASE_ANON_KEY = 'test-key';
+  let active = true;
+  globalThis.fetch = async url => new Response(JSON.stringify(String(url).includes('/auth/v1/user')
+    ? { id: 'user-id', email: 'user@example.com', user_metadata: { role: 'management' } }
+    : [{ display_name: 'China Operator', role: 'china', active }]));
+  try {
+    assert.deepEqual(await supabaseUser('token'), { name: 'China Operator', role: 'china' });
+    active = false; assert.equal(await supabaseUser('token'), null);
+    assert.equal(can('warehouse', 'product.edit'), false);
+    assert.equal(can('china', 'product.edit'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldUrl === undefined) delete process.env.SUPABASE_URL; else process.env.SUPABASE_URL = oldUrl;
+    if (oldKey === undefined) delete process.env.SUPABASE_ANON_KEY; else process.env.SUPABASE_ANON_KEY = oldKey;
+  }
+});
+
+test('normal usernames map to internal Auth identities without personal email', async () => {
+  const { usernameIdentity } = await import('../dist/auth.js');
+  assert.equal(usernameIdentity(' Ravi '), 'ravi@users.tracker.internal');
+  assert.throws(() => usernameIdentity('ravi@gmail.com'));
+  assert.throws(() => usernameIdentity('ab'));
+});
+
+test('page restrictions limit operations in addition to role privileges', async () => {
+  const { userCan } = await import('../dist/auth.js');
+  const user = { name: 'Delivery Operator', role: 'india', pages: ['/delivery'] };
+  assert.equal(userCan(user, 'movement.Customer delivery'), true);
+  assert.equal(userCan(user, 'product.create'), false);
+  assert.equal(userCan(user, 'users.manage'), false);
+  assert.equal(userCan({ name: 'Admin', role: 'management' }, 'users.manage'), true);
+});
+
+test('measurement comes first: stage, alert and legacy defaults', () => {
+  const raw = product({ authorization: 'Not Reviewed', production: 'Not Started', completionDate: '', calledOut: 0 }); delete raw.measurementDate;
+  const s = normalize(store([raw])); assert.equal(s.products[0].measurementDate, ''); // older records get a safe default
+  assert.equal(getStage(s.products[0]), 'Awaiting measurement');
+  let titles = alerts(s, '2026-10-26').map(a => a.title);
+  assert.ok(titles.includes('Measurement not finalised')); assert.ok(!titles.includes('Authorization required'));
+  s.products[0].measurementDate = '2026-10-20';
+  assert.equal(getStage(s.products[0]), 'Awaiting authorization');
+  titles = alerts(s, '2026-10-26').map(a => a.title);
+  assert.ok(titles.includes('Authorization required')); assert.ok(!titles.includes('Measurement not finalised'));
 });

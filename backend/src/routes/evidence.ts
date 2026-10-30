@@ -8,8 +8,8 @@ evidenceRouter.get('/status', (_req, res) => res.json({ configured: evidenceConf
 // One photo per request (the screen shrinks each photo first), so every request stays under the serverless body limit.
 evidenceRouter.post('/', async (req, res) => {
   const kind = req.body.kind;
-  must(kind === 'loading' || kind === 'receiving', 'Choose loading or receiving photos.');
-  requirePermission(req, kind === 'loading' ? 'movement.Container loading' : 'movement.India receiving');
+  must(kind === 'loading' || kind === 'receiving' || kind === 'product', 'Choose loading or receiving photos.');
+  requirePermission(req, kind === 'product' ? 'product.edit' : kind === 'loading' ? 'movement.Container loading' : 'movement.India receiving');
   res.status(201).json({ path: await uploadPhoto(kind, req.body.image) });
 });
 evidenceRouter.get('/url', async (req, res) => res.json({ url: await signedUrl(String(req.query.path || '')) }));

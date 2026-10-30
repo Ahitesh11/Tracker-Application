@@ -4,12 +4,14 @@ import { HttpError } from './http.js';
 import { defaultLeads } from './default-leads.js';
 
 export interface Product {
+  photos?: string[];
   id: string; pi: string; order: string; customer: string; vendor: string; name: string; specs: string; dimensions: string;
   category: string; subcategory: string; quantity: number; unit: string; authorization: string; production: string;
   required: string; originalRequired: string; expectedCompletion: string; instructionDate: string; ackDate: string;
   startDate: string; completionDate: string; china: number; loaded: number; india: number; delivered: number; calledOut: number;
   owner: string; nextAction: string; deadline: string; shipment: string; container: string; notes: string; issues: string[];
   calloutDate: string; vendorCommitDate: string; quarantined: number; closed: string; closedBy: string; closedReason: string;
+  measurementDate: string;
 }
 export interface LeadTime { category: string; subcategory: string; manufacturing: number; transit: number; chinaBuffer: number; consolidation: number; customs: number; delivery: number; safety: number; confirmation?: number }
 export const movements = ['China receiving', 'Container loading', 'India receiving', 'Customer delivery', 'Customer return'] as const;
@@ -33,7 +35,7 @@ function emptyStore(): Store {
 }
 /** Older saved records miss newer fields; give them safe defaults. */
 export function normalize(s: Store): Store {
-  for (const p of s.products) { p.calledOut ??= 0; p.calloutDate ??= ''; p.vendorCommitDate ??= ''; p.quarantined ??= 0; p.closed ??= ''; p.closedBy ??= ''; p.closedReason ??= ''; p.issues ??= []; }
+  for (const p of s.products) { p.calledOut ??= 0; p.calloutDate ??= ''; p.vendorCommitDate ??= ''; p.quarantined ??= 0; p.closed ??= ''; p.closedBy ??= ''; p.closedReason ??= ''; p.issues ??= []; p.measurementDate ??= ''; }
   for (const lead of s.leads) lead.confirmation ??= 7;
   return s;
 }
@@ -63,7 +65,7 @@ export function getStage(p: Product) {
   if (p.loaded > p.india) return 'In transit';
   if (p.china > p.loaded) return 'China warehouse';
   if (p.production === 'Production Completed') return 'Ready at vendor';
-  if (p.authorization !== 'Approved for Production') return 'Awaiting authorization';
+  if (p.authorization !== 'Approved for Production') return p.measurementDate ? 'Awaiting authorization' : 'Awaiting measurement';
   return p.production === 'In Production' ? 'In production' : 'Awaiting production';
 }
 export function plan(p: Product, s: Store, asOf = today()) {
@@ -87,7 +89,8 @@ export function alerts(s: Store, asOf = today()) {
     const add = (key: string, title: string, detail: string, severity = 'Warning', due = p.deadline || p.required, owner = p.owner) => result.push({ id: `${p.id}-${key}`, productId: p.id, title, detail, owner, severity, due });
     const pl = plan(p, s, asOf);
     if (pl.stage === 'Delivered' || pl.stage === 'Closed') return result;
-    if (p.authorization !== 'Approved for Production') add('auth', 'Authorization required', p.nextAction || 'India team must review specifications and authorize production.');
+    if (p.authorization !== 'Approved for Production' && !p.measurementDate) add('measurement', 'Measurement not finalised', p.nextAction || 'India team must finalise the measurement before production is authorized.');
+    else if (p.authorization !== 'Approved for Production') add('auth', 'Authorization required', p.nextAction || 'India team must review specifications and authorize production.');
     else if (!p.instructionDate && !p.completionDate) add('instruction', 'Production instruction pending', `Latest instruction date ${pl.latestInstruction} (${pl.confirmation} days before the latest production start).`, pl.latestInstruction < asOf ? 'Critical' : 'Warning', pl.latestInstruction);
     if (p.instructionDate && !p.ackDate && daysBetween(p.instructionDate, asOf) > 3) add('ack', 'Vendor acknowledgment overdue', 'Follow up on the production instruction.', 'Critical');
     if (p.expectedCompletion && p.expectedCompletion < asOf && p.production !== 'Production Completed') add('production', 'Production completion overdue', `Expected ${p.expectedCompletion}; verify vendor update.`, 'Critical');

@@ -1,10 +1,11 @@
 export interface Product {
+  photos?: string[];
   id: string; pi: string; order: string; customer: string; vendor: string; name: string; specs: string; dimensions: string;
   category: string; subcategory: string; quantity: number; unit: string; authorization: string; production: string;
   required: string; originalRequired: string; expectedCompletion: string; instructionDate: string; ackDate: string; startDate: string; completionDate: string;
   china: number; loaded: number; india: number; delivered: number; calledOut: number; owner: string; nextAction: string; deadline: string;
   shipment: string; container: string; notes: string; issues: string[];
-  calloutDate: string; vendorCommitDate: string; quarantined: number; closed: string; closedBy: string; closedReason: string;
+  calloutDate: string; vendorCommitDate: string; quarantined: number; closed: string; closedBy: string; closedReason: string; measurementDate: string;
   planning: { manufacturing: number; logistics: number; confirmation: number; latestInstruction: string; latestComplete: string; latestStart: string; dueDays: number; overdue: boolean; risk: string; stage: string };
 }
 export interface LeadTime { category: string; subcategory: string; manufacturing: number; transit: number; chinaBuffer: number; consolidation: number; customs: number; delivery: number; safety: number; confirmation?: number }

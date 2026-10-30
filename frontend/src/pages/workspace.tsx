@@ -1,4 +1,4 @@
-﻿import { useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, Package, Factory, Ship, TriangleAlert, ListChecks, Sparkles, Search, Download, Plus, Clock, FileSearch, Pencil, FileUp } from 'lucide-react';
 import { useWorkspace } from '@/components/workspace-provider';
@@ -14,12 +14,25 @@ import { ImportPi } from '@/components/import-pi';
 import { BulkUpdate } from '@/components/bulk-update';
 import { GuideFlow } from '@/components/guide-flow';
 import { EmptyState } from '@/components/empty-state';
+import { PhotoThumb } from '@/components/form-helpers';
 
+/** The product's first photo. It is fetched only when the row scrolls into view, so long tables stay fast. */
+function ProductPhoto({ p }: { p: Product }) {
+  const box = useRef<HTMLSpanElement>(null), [seen, setSeen] = useState(false), { t } = useI18n();
+  useEffect(() => {
+    const el = box.current; if (!el || !p.photos?.length) return;
+    const observer = new IntersectionObserver(entries => { if (entries.some(e => e.isIntersecting)) { setSeen(true); observer.disconnect(); } }, { rootMargin: '200px' });
+    observer.observe(el); return () => observer.disconnect();
+  }, [p.photos]);
+  if (!p.photos?.length) return <span className="table-photo empty" aria-label={t('No photo')}>—</span>;
+  return <span className="table-photo" ref={box}>{seen && <PhotoThumb path={p.photos[0]}/>}{p.photos.length > 1 && <small>+{p.photos.length - 1}</small>}</span>;
+}
 function ProductName({ p }: { p: Product }) { const { select } = useWorkspace(); return <button className="product-name" onClick={() => select(p.id)}><strong>{p.name}</strong><small>{p.id}</small></button>; }
 function ProductTable({ products, view = 'orders' }: { products: Product[]; view?: string }) {
   const { select } = useWorkspace(), { t } = useI18n(), [picked, setPicked] = useState<Set<string>>(new Set()), [bulk, setBulk] = useState(false);
   const chosen = products.filter(p => picked.has(p.id));
   const columns: Column<Product>[] = [
+    {key:'photo',title:'Photo',render:p => <ProductPhoto p={p}/>},
     {key:'name',title:'Product / reference',sort:p => p.name,render:p => <ProductName p={p}/>},
     {key:'customer',title:'Customer / PI',sort:p => p.customer + p.pi,render:p => <div className="cell-stack"><span>{p.customer}</span><small>{p.pi}</small></div>},
     {key:'vendor',title:'Vendor',sort:p => p.vendor,render:p => p.vendor},
@@ -33,7 +46,7 @@ function ProductTable({ products, view = 'orders' }: { products: Product[]; view
   else columns.push({key:'quantity',title:'Qty',sort:p => p.quantity,render:p => <strong>{p.quantity.toLocaleString('en-IN')} <small className="muted">{t(p.unit)}</small></strong>},{key:'stage',title:'Journey',sort:p => p.planning.stage,render:p => <Journey product={p} label={p.planning.stage}/>});
   columns.push({key:'required',title:'Required delivery',sort:p => p.required,render:p => <div className="cell-stack due-cell"><span>{displayDate(p.required)}</span><small className={p.planning.dueDays < 0 && p.planning.stage !== 'Delivered' ? 'late' : ''}>{p.planning.stage === 'Delivered' || p.planning.stage === 'Closed' ? t(p.planning.stage) : p.planning.dueDays < 0 ? t('{n} days overdue',{n:-p.planning.dueDays}) : t('{n} days remaining',{n:p.planning.dueDays})}</small></div>},{key:'risk',title:'Health',sort:p => p.planning.risk,render:p => <Badge>{p.planning.risk}</Badge>},{key:'open',title:'',render:p => <Button variant="ghost" size="icon" aria-label={`${t('Open')} ${p.name}`} onClick={() => select(p.id)}><ArrowUpRight size={17}/></Button>});
   return <>
-    {chosen.length > 0 && <div className="bulk-bar" role="region" aria-label={t('Bulk update')}><strong>{t('{n} selected', { n: chosen.length })}</strong><Button onClick={() => setBulk(true)}>{t('Bulk update')}</Button><Button variant="outline" onClick={() => setPicked(new Set())}>{t('Clear selection')}</Button></div>}
+    {chosen.length > 0 && <div className="bulk-bar" role="region" aria-label={t('Bulk update')}><strong>{t('{n} selected', { n: chosen.length })}</strong><Button onClick={() => setBulk(true)}>{t('Bulk update')}</Button><small>{t('To update only one product, click its name instead.')}</small><Button variant="outline" onClick={() => setPicked(new Set())}>{t('Clear selection')}</Button></div>}
     <DataTable columns={columns} rows={products} rowKey={p => p.id} emptyMessage="No products match these filters." selection={{ selected: new Set(chosen.map(p => p.id)), onChange: setPicked }}/>
     {bulk && <BulkUpdate products={chosen} close={() => { setBulk(false); setPicked(new Set()); }}/>}
   </>;

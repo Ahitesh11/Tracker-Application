@@ -39,7 +39,7 @@ workspaceRouter.post('/shipments', async (req, res) => {
   await commit(s); res.status(existing ? 200 : 201).json(await snapshot());
 });
 
-const newProduct = (id: string, f: Record<string, string>, quantity: number, required: string, unit = 'pcs'): Product => ({ id, pi: f.pi, order: f.order, customer: f.customer, vendor: f.vendor, name: f.name, specs: f.specs, dimensions: f.dimensions, category: f.category, subcategory: f.subcategory, quantity, unit, authorization: 'Not Reviewed', production: 'Not Started', required, originalRequired: required, expectedCompletion: '', instructionDate: '', ackDate: '', startDate: '', completionDate: '', china: 0, loaded: 0, india: 0, delivered: 0, calledOut: 0, owner: 'India Controller', nextAction: 'Review specifications and authorize production', deadline: today(), shipment: '', container: '', notes: '', issues: [], calloutDate: '', vendorCommitDate: '', quarantined: 0, closed: '', closedBy: '', closedReason: '' });
+const newProduct = (id: string, f: Record<string, string>, quantity: number, required: string, unit = 'pcs'): Product => ({ id, pi: f.pi, order: f.order, customer: f.customer, vendor: f.vendor, name: f.name, specs: f.specs, dimensions: f.dimensions, category: f.category, subcategory: f.subcategory, quantity, unit, authorization: 'Not Reviewed', production: 'Not Started', required, originalRequired: required, expectedCompletion: '', instructionDate: '', ackDate: '', startDate: '', completionDate: '', china: 0, loaded: 0, india: 0, delivered: 0, calledOut: 0, owner: 'India Controller', nextAction: 'Finalise measurement', deadline: today(), shipment: '', container: '', notes: '', issues: [], calloutDate: '', vendorCommitDate: '', quarantined: 0, closed: '', closedBy: '', closedReason: '', measurementDate: '' });
 const productFields = (body: Record<string, unknown>) => Object.fromEntries(['pi', 'order', 'customer', 'vendor', 'name', 'specs', 'dimensions', 'category', 'subcategory'].map(key => [key, text(body[key], 200)]));
 
 workspaceRouter.post('/products', async (req, res) => {
@@ -73,6 +73,9 @@ workspaceRouter.post('/products/bulk', async (req, res) => {
     must(s.leads.some(l => l.category === f.category && l.subcategory === f.subcategory), `Row ${n}: choose an existing lead-time category.`);
     must(Number.isSafeInteger(quantity) && quantity > 0 && quantity <= 1000000, `Row ${n}: quantity must be a positive whole number.`);
     const product = newProduct(`PRD-${randomUUID().slice(0, 8).toUpperCase()}`, f, quantity, required, text(row.unit, 20).toLowerCase() || 'pcs');
+    const photos = Array.isArray(row.photos) ? row.photos : [];
+    must(photos.length <= 8 && photos.every((v: unknown) => typeof v === 'string' && evidencePathPattern.test(v)), `Row ${n}: attach up to 8 photos uploaded through the app.`);
+    if (photos.length) product.photos = photos;
     created.push(product); s.products.push(product);
     s.activity.unshift({ id: randomUUID(), productId: product.id, action: 'Product created', quantity, document: head.pi, notes: product.name, actor, at: now, source: 'PI import', requestId: key && index === 0 ? key : undefined });
   });
@@ -81,7 +84,7 @@ workspaceRouter.post('/products/bulk', async (req, res) => {
 
 // Which permission each product update needs.
 const updatePermission: Record<string, string> = {
-  'Authorize production': 'production.authorize', 'Record instruction': 'production.instruct', 'Record acknowledgment': 'production.ack', 'Start production': 'production.start', 'Complete production': 'production.complete',
+  'Finalise measurement': 'production.authorize', 'Authorize production': 'production.authorize', 'Record instruction': 'production.instruct', 'Record acknowledgment': 'production.ack', 'Start production': 'production.start', 'Complete production': 'production.complete',
   'Record vendor call-out': 'callout', 'Update follow-up': 'followup', 'Revise delivery date': 'delivery.revise', 'Close product line': 'product.close', 'Reopen product line': 'product.reopen',
 };
 /** Applies one product update (authorize, instruct, start, revise date...) to a product in the loaded workspace; throws when it is not allowed. */
@@ -95,8 +98,16 @@ function applyUpdate(req: Request, s: Store, p: Product) {
   must(at, 'Enter a valid actual event date.');
   must(at <= today(), 'Actual event dates cannot be in the future.');
   if (p.closed && action !== 'Reopen product line') throw new HttpError(400, 'This product line is closed. Ask Management to reopen it first.');
-  if (action === 'Authorize production') {
+  // China's start and completion confirmations need photo proof.
+  const photos = Array.isArray(req.body.photos) ? req.body.photos : [];
+  must(photos.length <= 8 && photos.every((v: unknown) => typeof v === 'string' && evidencePathPattern.test(v)) && new Set(photos).size === photos.length, 'Attach up to 8 photos uploaded through the app.');
+  if (action === 'Start production' || action === 'Complete production') must(photos.length >= 1, action === 'Start production' ? 'Attach at least one photo proving production has started.' : 'Attach at least one photo proving production is complete.');
+  if (action === 'Finalise measurement') {
+    must(p.authorization !== 'Approved for Production' && !p.measurementDate, 'Measurement is already finalised.');
+    p.measurementDate = at; p.nextAction = 'Review specifications and authorize production';
+  } else if (action === 'Authorize production') {
     must(p.authorization !== 'Approved for Production', 'Product is already authorized.');
+    must(p.measurementDate, 'Finalise the measurement before authorizing production.');
     p.authorization = 'Approved for Production'; p.owner = 'China Controller'; p.nextAction = 'Send production instruction';
   } else if (action === 'Record instruction') {
     must(p.authorization === 'Approved for Production', 'India authorization is required first.');
@@ -132,8 +143,24 @@ function applyUpdate(req: Request, s: Store, p: Product) {
     closeProduct(s, p, { shortClose: req.body.shortClose === true, notes, actor, at });
   } else { reopenProduct(p); }
   if (!['Update follow-up', 'Revise delivery date', 'Close product line', 'Reopen product line'].includes(action)) p.deadline = p.expectedCompletion > today() ? p.expectedCompletion : today();
-  s.activity.unshift({ id: randomUUID(), productId: p.id, action, quantity: action === 'Record vendor call-out' ? integer(req.body.quantity, 1) : 0, document: text(req.body.document, 200), notes, actor, at: new Date().toISOString(), source: 'Operator update', evidence: text(req.body.evidence, 500) || undefined, requestId: requestKey(req) });
+  s.activity.unshift({ id: randomUUID(), productId: p.id, action, quantity: action === 'Record vendor call-out' ? integer(req.body.quantity, 1) : 0, document: text(req.body.document, 200), notes, actor, at: new Date().toISOString(), source: 'Operator update', evidence: text(req.body.evidence, 500) || undefined, photos: photos.length ? photos : undefined, requestId: requestKey(req) });
 }
+workspaceRouter.post('/products/:id/details', async (req, res) => {
+  requirePermission(req, 'product.edit');
+  const s = await getState(), p = s.products.find(p => p.id === req.params.id);
+  must(p, 'Product not found.');
+  must(!p.closed, 'This product line is closed. Ask Management to reopen it first.');
+  const actor = actorOf(req, req.body.actor), notes = text(req.body.notes);
+  must(actor && notes, 'Your name and an update note are required.');
+  const fields = Object.fromEntries(['vendor', 'name', 'specs', 'dimensions'].map(key => [key, text(req.body[key], 200)]));
+  must(fields.vendor && fields.name, 'Product name and vendor are required.');
+  const photos = req.body.photos;
+  must(Array.isArray(photos) && photos.length <= 8 && photos.every(v => typeof v === 'string' && evidencePathPattern.test(v)) && new Set(photos).size === photos.length, 'Attach up to 8 photos uploaded through the app.');
+  const before = { vendor: p.vendor, name: p.name, specs: p.specs, dimensions: p.dimensions, photos: p.photos || [] };
+  Object.assign(p, fields, { photos });
+  s.activity.unshift({ id: randomUUID(), productId: p.id, action: 'Product details corrected', quantity: 0, document: p.pi, notes: JSON.stringify({ reason: notes, before, after: { ...fields, photos } }), actor, at: new Date().toISOString(), source: 'Operator update', requestId: requestKey(req), photos });
+  await commit(s); res.json(await snapshot());
+});
 workspaceRouter.post('/products/:id/update', async (req, res) => {
   const s = await getState();
   const p = s.products.find(p => p.id === req.params.id);
@@ -177,7 +204,7 @@ workspaceRouter.post('/drafts', async (req, res) => {
   const photos = Array.isArray(req.body.photos) ? req.body.photos : [];
   must(photos.length <= 8 && photos.every((v: unknown) => typeof v === 'string' && evidencePathPattern.test(v)), 'Attach up to 8 photos uploaded through the app.');
   must(new Set(photos).size === photos.length, 'The same photo was attached twice.');
-  if (type === 'Container loading' || type === 'India receiving') must(photos.length >= 1, type === 'Container loading' ? 'Attach at least one photo of the goods loaded in the container.' : 'Attach at least one photo of the goods received in India.');
+  if (type === 'Container loading' || type === 'India receiving' || type === 'Customer delivery') must(photos.length >= 1, type === 'Container loading' ? 'Attach at least one photo of the goods loaded in the container.' : type === 'India receiving' ? 'Attach at least one carton photo of the goods received in India.' : 'Attach at least one carton photo of the goods delivered to the customer.');
   if (photos.length) draft.photos = photos;
   must(!duplicate(s, draft), 'This document movement is already in the official log.');
   must(!s.drafts.some(d => d.status === 'Pending' && d.productId === draft.productId && d.type === draft.type && d.document === draft.document), 'This document movement is already awaiting review.');
