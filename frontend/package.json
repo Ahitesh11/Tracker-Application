@@ -12,6 +12,7 @@
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "fflate": "^0.8.2",
     "lucide-react": "^0.468.0",
     "pdfjs-dist": "^4.10.38",
     "react": "^19.0.0",

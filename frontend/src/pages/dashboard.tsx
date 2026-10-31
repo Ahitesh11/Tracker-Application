@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
-import { ArrowRight, ArrowUpRight, Package, TriangleAlert, Clock, FileSearch, Ship, ListChecks, ShieldAlert, ScanSearch, Sparkles, Boxes } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Package, TriangleAlert, Clock, FileSearch, Ship, ListChecks, ShieldAlert, ClipboardCheck, ScanSearch, Sparkles, Boxes } from 'lucide-react';
 import { useWorkspace } from '@/components/workspace-provider';
 import { Badge, Stat, SectionHeader, Journey } from '@/components/operations-ui';
 import { EmptyState } from '@/components/empty-state';
-import { useI18n } from '@/lib/i18n';
+import { dateLocale, useI18n } from '@/lib/i18n';
 import { displayDate, type Draft } from '@/services/workspace-api';
 import { stageColors } from '@/pages/workspace';
 
@@ -29,7 +29,7 @@ export function Dashboard() {
   const critical = alerts.filter(a => a.severity === 'Critical').length;
   const where: [string, number, string, string][] = [
     ['Still with vendors', notInChina, '#f97316', '/callout'], ['China warehouse', inChina, '#10b981', '/china-warehouse'], ['In transit', inTransit, '#0ea5e9', '/shipments'],
-    ['India warehouse', inIndia, '#5b4de0', '/india-receiving'], ['Delivered', delivered, '#16a34a', '/delivery'],
+    ['India warehouse', inIndia, '#0d9488', '/india-receiving'], ['Delivered', delivered, '#16a34a', '/delivery'],
   ];
   const waitingCallout = sum(p => p.calledOut - p.china), waitingDelivery = inIndia;
   const stuck: [string, number, string][] = ([['{n} units called out but not yet received in China', waitingCallout, '/china-warehouse'], ['{n} units in the China warehouse waiting for a container', inChina, '/shipments'], ['{n} units in transit, not yet received in India', inTransit, '/india-receiving'], ['{n} units in India waiting for customer delivery', waitingDelivery, '/delivery']] as [string, number, string][]).filter(r => r[1] > 0);
@@ -41,13 +41,26 @@ export function Dashboard() {
     return acc;
   }, {})).sort((a, b) => b.late - a.late || b.qty - a.qty).slice(0, 6);
   const upcoming = [...open].sort((a, b) => a.required.localeCompare(b.required)).slice(0, 4);
-  const needAction = overdue.length + atRisk.length;
+  const funnel: [string, number][] = [['Ordered', ordered], ['Called out', sum(p => p.calledOut)], ['Received in China', sum(p => p.china)], ['Loaded in container', sum(p => p.loaded)], ['Received in India', sum(p => p.india)], ['Delivered', delivered]];
+  const monthName = new Intl.DateTimeFormat(dateLocale(), { month: 'short', year: '2-digit', timeZone: 'UTC' });
+  const due = open.reduce<Record<string, number>>((acc, p) => { const left = p.quantity - p.delivered, key = p.required < today ? 'late' : p.required.slice(0, 7); acc[key] = (acc[key] || 0) + left; return acc; }, {});
+  const months = Object.keys(due).sort((a, b) => (a === 'late' ? -1 : b === 'late' ? 1 : a.localeCompare(b))).slice(0, 7), peak = Math.max(1, ...months.map(m => due[m]));
+  const needAction = overdue.length + atRisk.length, onTrack = open.filter(p => p.planning.risk === 'On track'), pendingLists = data.loadingLists.filter(l => l.status === 'Pending approval');
+  const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' }).format(new Date())) % 24, greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return <>
-    <section className="dash-head">
-      <div className="dash-lead">
-        <p>{needAction ? t('{a} product lines are overdue or at risk. {b} units are on the water.', { a: needAction, b: n(inTransit) }) : t('Nothing is overdue. {b} units are on the water.', { b: n(inTransit) })}</p></div>
-      <div className="dash-actions"><Link to="/fms" className="hero-button">{t('View today’s actions')} <ArrowRight size={16}/></Link><Link to="/audit-report" className="dash-ghost"><ScanSearch size={15}/>{t('Audit Report')}</Link><Link to="/ai-assistant" className="dash-ghost"><Sparkles size={15}/>{t('Ask your assistant')}</Link></div>
+    <section className="dash-hero">
+      <div className="dash-hero-main">
+        <span className="hero-tag"><span/>{t('LIVE OVERVIEW')} · {displayDate(today)}</span>
+        <h2>{t(greeting)}</h2>
+        <p>{needAction ? t('{a} product lines are overdue or at risk. {b} units are on the water.', { a: needAction, b: n(inTransit) }) : t('Nothing is overdue. {b} units are on the water.', { b: n(inTransit) })}</p>
+        <div className="dash-actions"><Link to="/fms" className="hero-button">{t('View today’s actions')} <ArrowRight size={16}/></Link><Link to="/audit-report" className="dash-ghost"><ScanSearch size={15}/>{t('Audit Report')}</Link><Link to="/ai-assistant" className="dash-ghost"><Sparkles size={15}/>{t('Ask your assistant')}</Link></div>
+      </div>
+      <div className="hero-stats">
+        <div className="ring" role="img" aria-label={t('{a}% of units delivered', { a: pct(delivered, ordered) })}><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="50" className="ring-bg"/><circle cx="60" cy="60" r="50" className="ring-fg" strokeDasharray={`${(pct(delivered, ordered) / 100) * 314} 314`}/></svg><div><strong>{pct(delivered, ordered)}%</strong><small>{t('delivered')}</small></div></div>
+        <ul className="health-list">{([['On track', onTrack.length, '#bbf7d0'], ['At risk', atRisk.length, '#fde68a'], ['Overdue', overdue.length, '#fecaca']] as [string, number, string][]).map(([label, count, color]) => <li key={label}><i style={{ background: color }}/><strong>{count}</strong><span>{t(label)}</span></li>)}</ul>
+      </div>
     </section>
+    {pendingLists.length > 0 && <Link className="dash-banner" to="/shipments"><ClipboardCheck size={18}/><span>{t('{n} loading lists are waiting for controller approval.', { n: pendingLists.length })}</span><b>{t('Review now')} <ArrowRight size={14}/></b></Link>}
 
     <div className="kpi-grid">
       <Link className="stat-link" to="/orders"><Stat label="Open product lines" value={n(open.length)} note={t('{a} PIs · {b} customers',{a:new Set(products.map(p=>p.pi)).size,b:new Set(products.map(p=>p.customer)).size})} icon={<Package size={18}/>}/></Link>
@@ -69,6 +82,15 @@ export function Dashboard() {
       </section>
       <section className="panel"><SectionHeader title="Needs your attention" description="Resolve these first to keep orders moving."><Link className="text-link" to="/fms">{t('All actions')} <ArrowUpRight size={15}/></Link></SectionHeader>
         <div className="attention-list">{alerts.slice(0, 5).map(a => { const Icon = severityIcon[a.severity as keyof typeof severityIcon] || TriangleAlert, p = products.find(p => p.id === a.productId); return <button key={a.id} className="attention-item" onClick={() => select(a.productId)}><span className={`sev ${a.severity}`}><Icon size={18}/></span><div><strong>{t(a.title)}</strong><p>{p?.name} · {t(a.detail)}</p></div><time>{displayDate(a.due)}</time></button>; })}{!alerts.length && <EmptyState title="All clear" description="Nothing needs attention right now."/>}</div></section>
+    </div>
+
+    <div className="dash-duo">
+      <section className="panel"><SectionHeader title="Order funnel" description="How many units reached each stage, from order to customer."/>
+        {ordered > 0 ? <div className="funnel">{funnel.map(([label, value], i) => <div className="funnel-row" key={label}><span>{t(label)}</span><div className="funnel-track"><i style={{ width: `${Math.max(pct(value, ordered), value ? 2 : 0)}%`, opacity: 1 - i * 0.1 }}/></div><b>{n(value)}<small>{pct(value, ordered)}%</small></b></div>)}</div> : <EmptyState title="No products yet" description="Import a PI to start tracking."/>}
+      </section>
+      <section className="panel"><SectionHeader title="Deliveries due by month" description="Units still to deliver, by the customer’s required date."/>
+        {months.length ? <div className="columns" role="img" aria-label={t('Units still to deliver by month')}>{months.map(m => <div className={m === 'late' ? 'column late' : 'column'} key={m}><b>{n(due[m])}</b><div className="column-bar"><i style={{ height: `${Math.max((due[m] / peak) * 100, 4)}%` }}/></div><span>{m === 'late' ? t('Overdue') : monthName.format(new Date(`${m}-01T00:00:00Z`))}</span></div>)}</div> : <p className="muted dash-empty">{t('No open product lines.')}</p>}
+      </section>
     </div>
 
     <div className="dash-trio">

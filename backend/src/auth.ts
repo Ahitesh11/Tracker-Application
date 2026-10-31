@@ -28,10 +28,10 @@ export const authEnabled = () => supabaseAuthEnabled() || parseUsers().length > 
 export const pagePaths = ['/', '/orders', '/pi', '/production', '/callout', '/china-warehouse', '/shipments', '/india-receiving', '/delivery', '/fms', '/exceptions', '/approvals', '/audit-report', '/ai-assistant', '/reports', '/activity', '/administration', '/settings', '/guide'];
 const permissionPages: Record<string, string[]> = {
   'users.manage': ['/administration'], 'product.edit': ['/orders', '/pi', '/production'], 'product.create': ['/orders', '/pi'],
-  'production.authorize': ['/production'], 'production.instruct': ['/production'], 'production.ack': ['/production'], 'production.start': ['/production'], 'production.complete': ['/production'],
-  'callout': ['/callout'], 'delivery.revise': ['/orders', '/pi', '/production'], 'followup': ['/orders', '/production', '/callout', '/fms'],
+  'production.authorize': ['/production'], 'production.start': ['/production'], 'production.complete': ['/production'],
+  'callout': ['/callout'], 'delivery.revise': ['/orders', '/pi', '/production'],
   'movement.China receiving': ['/china-warehouse'], 'movement.Container loading': ['/shipments'], 'movement.India receiving': ['/india-receiving'], 'movement.Customer delivery': ['/delivery'], 'movement.Customer return': ['/delivery'],
-  'draft.review': ['/approvals'], 'shipment.manage': ['/shipments'], 'exception.raise': ['/exceptions'], 'exception.update': ['/exceptions'], 'exception.resolve': ['/exceptions'], 'exception.reopen': ['/exceptions'],
+  'draft.review': ['/approvals'], 'loadinglist.approve': ['/shipments'], 'shipment.manage': ['/shipments'], 'exception.raise': ['/exceptions'], 'exception.update': ['/exceptions'], 'exception.resolve': ['/exceptions'], 'exception.reopen': ['/exceptions'],
   'product.close': ['/orders'], 'product.reopen': ['/orders'], 'leadtimes.edit': ['/settings'], 'ai.use': ['/ai-assistant', '/audit-report']
 };
 export const userCan = (user: SessionUser, permission: string) => can(user.role, permission) && (!user.pages || Boolean(permissionPages[permission]?.some(page => user.pages!.includes(page))));
@@ -48,18 +48,16 @@ const rules: Record<string, Role[]> = {
   'product.create': ['india', 'management'],
   'production.authorize': ['india', 'management'],
   'delivery.revise': ['india', 'management'],
-  'production.instruct': ['china', 'management'],
-  'production.ack': ['china', 'management'],
   'production.start': ['china', 'management'],
   'production.complete': ['china', 'management'],
   'callout': ['china', 'management'],
-  'followup': everyone,
   'movement.China receiving': ['china', 'warehouse', 'management'],
   'movement.Container loading': ['china', 'warehouse', 'management'],
   'movement.India receiving': ['india', 'warehouse', 'management'],
   'movement.Customer delivery': ['india', 'warehouse', 'management'],
   'movement.Customer return': ['india', 'warehouse', 'management'],
   'draft.review': ['india', 'management'],
+  'loadinglist.approve': ['india', 'china', 'management'],
   'shipment.manage': ['china', 'warehouse', 'management'],
   'exception.raise': everyone,
   'exception.update': everyone,

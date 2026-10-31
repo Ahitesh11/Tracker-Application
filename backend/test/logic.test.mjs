@@ -103,11 +103,11 @@ test('closing a product line needs a clean balance; short-close needs confirmati
   reopenProduct(p); assert.equal(p.closed, ''); assert.notEqual(getStage(p), 'Closed');
 });
 
-test('alerts flag missing acknowledgment, late instruction, loading and delivery work', () => {
-  const s = store([product({ china: 5, loaded: 2, india: 2, delivered: 0 }), product({ id: 'P2', production: 'Not Started', completionDate: '', instructionDate: '', ackDate: '', required: '2026-11-01' })]);
+test('alerts flag a late production start, loading and delivery work', () => {
+  const s = store([product({ china: 5, loaded: 2, india: 2, delivered: 0 }), product({ id: 'P2', production: 'Not Started', startDate: '', completionDate: '', instructionDate: '', ackDate: '', required: '2026-11-01' })]);
   const titles = alerts(s, '2026-10-26').map(a => a.title);
-  for (const expected of ['Warehouse goods not loaded', 'Customer delivery pending', 'Production instruction pending']) assert.ok(titles.includes(expected), expected);
-  assert.equal(alerts(s, '2026-10-26').find(a => a.title === 'Production instruction pending').severity, 'Critical');
+  for (const expected of ['Warehouse goods not loaded', 'Customer delivery pending', 'Production start pending']) assert.ok(titles.includes(expected), expected);
+  assert.equal(alerts(s, '2026-10-26').find(a => a.title === 'Production start pending').severity, 'Critical');
 });
 
 test('older saved products get safe defaults', () => {

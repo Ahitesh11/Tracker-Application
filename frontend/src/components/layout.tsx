@@ -1,7 +1,10 @@
 ﻿import { useEffect, useState } from 'react';
 import { NavLink, Link, Outlet, useLocation, Navigate } from 'react-router-dom';
-import { Armchair, PanelLeftClose, PanelLeftOpen, RefreshCw, ChevronRight, CircleHelp, Search, Menu, CheckCircle2, X, LogOut } from 'lucide-react';
+import { Logo } from '@/components/logo';
+import { PanelLeftClose, PanelLeftOpen, RefreshCw, ChevronRight, CircleHelp, Search, Menu, CheckCircle2, X, LogOut } from 'lucide-react';
 import { navigation } from '@/config/navigation';
+/** Pages that stay reachable (product Exceptions tab, search) but are not listed in the sidebar. */
+const hiddenFromSidebar = ['/exceptions', '/activity'];
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/components/workspace-provider';
 import { ProductDetail } from '@/components/product-detail';
@@ -28,9 +31,9 @@ export function Layout() {
     <a className="skip-link" href="#main">{t('Skip to content')}</a>
     {mobileOpen && <div className="nav-scrim" onClick={() => setMobileOpen(false)} aria-hidden="true"/>}
     <aside className="sidebar">
-      <Link to="/" className="brand" aria-label="Forma home"><span className="brand-mark"><Armchair size={22}/></span><span>Tracker<span className="brand-dot">.</span><small></small></span></Link>
+      <Link to="/" className="brand" aria-label="Forma home"><span className="brand-mark"><Logo size={40}/></span><span>Tracker<span className="brand-dot">.</span><small></small></span></Link>
       <div className="workspace-label">{collapsed ? 'FMS' : t('WORKSPACE')}</div>
-      <nav aria-label={t('Main navigation')}>{navigation.filter(item => canPage(item.path) && (item.path !== '/administration' || (enabled && can('users.manage')))).map(({ path, label, icon: Icon }) => <NavLink key={path} to={path} end={path === '/'} title={t(label)} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><Icon size={18}/><span className="nav-label">{t(label)}</span>{path === '/approvals' && pending > 0 && <span className="nav-count">{pending}</span>}{path === '/exceptions' && openExceptions > 0 && <span className="nav-count">{openExceptions}</span>}</NavLink>)}</nav>
+      <nav aria-label={t('Main navigation')}>{navigation.filter(item => !hiddenFromSidebar.includes(item.path) && canPage(item.path) && (item.path !== '/administration' || (enabled && can('users.manage')))).map(({ path, label, icon: Icon }) => <NavLink key={path} to={path} end={path === '/'} title={t(label)} className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}><Icon size={18}/><span className="nav-label">{t(label)}</span>{path === '/approvals' && pending > 0 && <span className="nav-count">{pending}</span>}{path === '/exceptions' && openExceptions > 0 && <span className="nav-count">{openExceptions}</span>}</NavLink>)}</nav>
       <div className="sidebar-bottom">{collapsed ? <div className="workspace-profile" style={{ justifyContent: 'center' }}><span className="avatar">T</span></div> : <div className="workspace-profile"><span className="avatar">LW</span><div><strong></strong><small>{t('India ↔ China')}</small></div><span className="online-dot" title={t('Backend online')}/></div>}</div>
     </aside>
     <div className="main-shell">

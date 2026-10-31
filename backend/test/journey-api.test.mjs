@@ -32,7 +32,6 @@ test('the nine-stage journey rules', async (t) => {
   assert.equal((await update('Finalise measurement')).status, 200); assert.ok(p().measurementDate);
   assert.match((await update('Finalise measurement')).body.error || '', /already finalised/);
   assert.equal((await update('Authorize production')).status, 200); assert.equal(p().authorization, 'Approved for Production');
-  await update('Record instruction'); await update('Record acknowledgment');
 
   const noProof = await update('Start production');
   assert.equal(noProof.status, 400); assert.match(noProof.body.error, /photo proving production has started/);

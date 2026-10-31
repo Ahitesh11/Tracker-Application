@@ -12,6 +12,8 @@ export interface Product {
   owner: string; nextAction: string; deadline: string; shipment: string; container: string; notes: string; issues: string[];
   calloutDate: string; vendorCommitDate: string; quarantined: number; closed: string; closedBy: string; closedReason: string;
   measurementDate: string;
+  /** Vendor call-out page: why the finished goods are held (empty = not held), who held them and when, and where they were last sent. */
+  hold?: string; holdAt?: string; holdBy?: string; destination?: string;
 }
 export interface LeadTime { category: string; subcategory: string; manufacturing: number; transit: number; chinaBuffer: number; consolidation: number; customs: number; delivery: number; safety: number; confirmation?: number }
 export const movements = ['China receiving', 'Container loading', 'India receiving', 'Customer delivery', 'Customer return'] as const;
@@ -19,7 +21,23 @@ export type Movement = typeof movements[number];
 export interface Draft { id: string; productId: string; type: Movement; quantity: number; document: string; carton: string; shipment: string; container: string; notes: string; confidence: string; status: string; createdAt: string; createdBy?: string; evidence?: string; requestId?: string; reviewedBy?: string; reviewedAt?: string; photos?: string[]; audit?: Audit }
 export interface Audit { status: 'Match' | 'Mismatch' | 'Needs review' | 'Unavailable'; summary: string; findings: string[]; loadedSeen: number | null; receivedSeen: number | null; damageSeen: boolean; expectedQuantity: number; shortfall: number; model: string; at: string }
 export interface Activity { id: string; productId: string; action: string; quantity: number; document: string; notes: string; actor: string; at: string; source: string; carton?: string; shipment?: string; container?: string; evidence?: string; requestId?: string; photos?: string[] }
+export type LineStatus = 'Matched' | 'Unmatched' | 'Ambiguous' | 'Duplicate' | 'Quantity issue';
+/** One row of a container loading list: what the AI read, and the product it was matched to. */
+export interface LoadingLine { id: string; productId: string; code: string; description: string; pi: string; quantity: number; unit: string; status: LineStatus; note: string; suggested: string; aiQuantity: number; aiText: string }
+export interface TrailEntry { at: string; actor: string; event: string; detail: string }
+/** A whole loading list. Nothing moves until a controller approves it. It is kept inside its shipment record (Loading_Lists), so the database needs no change. */
+export interface LoadingList { id: string; shipment: string; container: string; fileName: string; source: string; model: string; status: 'Pending approval' | 'Approved' | 'Rejected'; lines: LoadingLine[]; trail: TrailEntry[]; createdAt: string; createdBy: string; decidedBy?: string; decidedAt?: string }
 export interface Store { version: number; revision?: number; source: string; importedAt: string; products: Product[]; leads: LeadTime[]; drafts: Draft[]; activity: Activity[]; shipments: Record<string, string>[]; exceptions: Record<string, string>[] }
+
+export function readLists(s: Store): LoadingList[] {
+  return s.shipments.flatMap(sh => { try { const parsed = JSON.parse(sh.Loading_Lists || '[]'); return Array.isArray(parsed) ? parsed as LoadingList[] : []; } catch { return []; } });
+}
+export function saveList(s: Store, list: LoadingList) {
+  const shipment = s.shipments.find(sh => sh.Shipment_ID === list.shipment); must(shipment, 'The shipment of this loading list no longer exists.');
+  const lists = readLists({ ...s, shipments: [shipment] }), at = lists.findIndex(l => l.id === list.id);
+  if (at >= 0) lists[at] = list; else lists.unshift(list);
+  shipment.Loading_Lists = JSON.stringify(lists);
+}
 
 export const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 export function date(value: string | undefined): string {
@@ -35,7 +53,7 @@ function emptyStore(): Store {
 }
 /** Older saved records miss newer fields; give them safe defaults. */
 export function normalize(s: Store): Store {
-  for (const p of s.products) { p.calledOut ??= 0; p.calloutDate ??= ''; p.vendorCommitDate ??= ''; p.quarantined ??= 0; p.closed ??= ''; p.closedBy ??= ''; p.closedReason ??= ''; p.issues ??= []; p.measurementDate ??= ''; }
+  for (const p of s.products) { p.calledOut ??= 0; p.calloutDate ??= ''; p.vendorCommitDate ??= ''; p.quarantined ??= 0; p.closed ??= ''; p.closedBy ??= ''; p.closedReason ??= ''; p.issues ??= []; p.measurementDate ??= ''; p.hold ??= ''; p.holdAt ??= ''; p.holdBy ??= ''; p.destination ??= ''; }
   for (const lead of s.leads) lead.confirmation ??= 7;
   return s;
 }
@@ -75,7 +93,9 @@ export function plan(p: Product, s: Store, asOf = today()) {
   const latestComplete = shift(p.required, -logistics);
   const latestStart = shift(latestComplete, -lead.manufacturing);
   const latestInstruction = shift(latestStart, -confirmation);
-  const stage = getStage(p);
+  // Goods are in a container but the shipment has not left China yet (or is not recorded as moving): the stage is still Container loading.
+  const shipment = s.shipments.find(sh => sh.Shipment_ID === p.shipment), base = getStage(p);
+  const stage = base === 'In transit' && shipment?.Status === 'Planned' ? 'Container loading' : base;
   const finished = stage === 'Delivered' || stage === 'Closed';
   const dueDays = daysBetween(asOf, p.required);
   const overdue = Boolean(p.deadline && p.deadline < asOf && !finished);
@@ -91,10 +111,10 @@ export function alerts(s: Store, asOf = today()) {
     if (pl.stage === 'Delivered' || pl.stage === 'Closed') return result;
     if (p.authorization !== 'Approved for Production' && !p.measurementDate) add('measurement', 'Measurement not finalised', p.nextAction || 'India team must finalise the measurement before production is authorized.');
     else if (p.authorization !== 'Approved for Production') add('auth', 'Authorization required', p.nextAction || 'India team must review specifications and authorize production.');
-    else if (!p.instructionDate && !p.completionDate) add('instruction', 'Production instruction pending', `Latest instruction date ${pl.latestInstruction} (${pl.confirmation} days before the latest production start).`, pl.latestInstruction < asOf ? 'Critical' : 'Warning', pl.latestInstruction);
-    if (p.instructionDate && !p.ackDate && daysBetween(p.instructionDate, asOf) > 3) add('ack', 'Vendor acknowledgment overdue', 'Follow up on the production instruction.', 'Critical');
+    else if (!p.startDate && !p.completionDate) add('start', 'Production start pending', `Latest production start ${pl.latestStart}. China starts production and sends a proof photo.`, pl.latestStart < asOf ? 'Critical' : 'Warning', pl.latestStart);
     if (p.expectedCompletion && p.expectedCompletion < asOf && p.production !== 'Production Completed') add('production', 'Production completion overdue', `Expected ${p.expectedCompletion}; verify vendor update.`, 'Critical');
-    if (p.production === 'Production Completed' && p.calledOut < p.quantity) add('callout', 'Vendor call-out pending', `${p.quantity - p.calledOut} ${p.unit} are ready at the vendor but not called out for collection.`, 'Warning', p.deadline, 'China Controller');
+    if (p.hold) add('hold', 'Finished goods on hold at the vendor', `${p.hold} (held by ${p.holdBy || 'the team'} on ${p.holdAt}).`, 'Warning', p.deadline, 'China Controller');
+    else if (p.production === 'Production Completed' && p.calledOut < p.quantity) add('callout', 'Vendor call-out pending', `${p.quantity - p.calledOut} ${p.unit} are ready at the vendor but not called out for collection.`, 'Warning', p.deadline, 'China Controller');
     if (p.calledOut > p.china) add('collection', 'Called-out goods not received', `${p.calledOut - p.china} ${p.unit} called out${p.vendorCommitDate ? `; vendor committed ${p.vendorCommitDate}` : ''}, not yet received in China.`, p.vendorCommitDate && p.vendorCommitDate < asOf ? 'Critical' : 'Warning', p.vendorCommitDate || p.deadline, 'China Controller');
     if (p.china - p.loaded - p.quarantined > 0) add('loading', 'Warehouse goods not loaded', `${p.china - p.loaded - p.quarantined} ${p.unit} available for loading.`);
     if (p.quarantined > 0) add('quarantine', 'Stock in quarantine', `${p.quarantined} ${p.unit} are held. Resolve the exception to release or remove them.`);
@@ -106,7 +126,7 @@ export function alerts(s: Store, asOf = today()) {
 }
 
 export function duplicate(s: Store, d: Draft) { return s.activity.some(a => a.productId === d.productId && a.action === d.type && a.document === d.document); }
-export function applyMovement(s: Store, d: Draft, actor: string) {
+export function applyMovement(s: Store, d: Draft, actor: string, source = 'Operator approval') {
   const p = s.products.find(p => p.id === d.productId);
   must(p, 'Choose a valid product. Unmatched records cannot be approved.');
   must(!p.closed, closedMessage);
@@ -128,7 +148,7 @@ export function applyMovement(s: Store, d: Draft, actor: string) {
   p.owner = p.india > p.delivered ? 'India Controller' : 'China Controller';
   p.nextAction = d.type === 'Customer return' ? 'Decide what happens to the returned units: redeliver or raise an exception' : p.delivered === p.quantity ? 'Delivery complete: close the product line' : p.india > p.delivered ? 'Schedule customer delivery' : p.loaded > p.india ? 'Track shipment and prepare India receiving' : 'Allocate warehouse goods to a shipment';
   p.deadline = p.required;
-  s.activity.unshift({ id: randomUUID(), productId: p.id, action: d.type, quantity: d.quantity, document: d.document, notes: d.notes, actor, at: new Date().toISOString(), source: 'Operator approval', carton: d.carton, shipment: d.shipment, container: d.container, evidence: d.evidence, photos: d.photos?.length ? d.photos : undefined });
+  s.activity.unshift({ id: randomUUID(), productId: p.id, action: d.type, quantity: d.quantity, document: d.document, notes: d.notes, actor, at: new Date().toISOString(), source, carton: d.carton, shipment: d.shipment, container: d.container, evidence: d.evidence, photos: d.photos?.length ? d.photos : undefined });
 }
 
 /** Vendor call-out: the ready goods the China team asks the vendor to hand over. */
@@ -140,6 +160,37 @@ export function recordCallOut(p: Product, quantity: number, at: string, commitDa
   must(!commitDate || commitDate >= at, 'The vendor delivery commitment cannot be before the call-out date.');
   p.calledOut += quantity; p.calloutDate = at; p.vendorCommitDate = commitDate; p.owner = 'China Controller';
   p.nextAction = 'Collect the called-out goods from the vendor and receive them in the China warehouse';
+}
+
+/**
+ * The three decisions on the Vendor call-out page for goods that finished production:
+ * move them to the China warehouse, move them to shipments (ready for a container), or hold them with a reason.
+ */
+export const calloutActions = ['China warehouse', 'Shipments', 'Hold'] as const;
+export function calloutAction(s: Store, p: Product, input: { action: string; quantity?: number; reason: string; notes: string; actor: string; at: string }) {
+  must((calloutActions as readonly string[]).includes(input.action), 'Choose Move to China warehouse, Move to shipments or Hold.');
+  must(!p.closed, closedMessage);
+  must(p.authorization === 'Approved for Production' && p.production === 'Production Completed', 'Complete production before deciding where the goods go.');
+  const log = (action: string, quantity: number, notes: string) => s.activity.unshift({ id: randomUUID(), productId: p.id, action, quantity, document: '', notes, actor: input.actor, at: new Date().toISOString(), source: 'Vendor call-out' });
+  if (input.action === 'Hold') {
+    must(input.reason, 'Say why the goods are held. A reason is required.');
+    must(!p.hold, 'These goods are already on hold. Move them, or hold again after releasing.');
+    must(p.china < p.quantity, 'All units are already in the China warehouse; there is nothing left to hold at the vendor.');
+    p.hold = input.reason; p.holdAt = input.at; p.holdBy = input.actor; p.owner = 'China Controller'; p.nextAction = `On hold: ${input.reason}`;
+    log('Put on hold', p.quantity - p.china, `${input.reason}${input.notes ? `. ${input.notes}` : ''}`); return;
+  }
+  const remaining = p.quantity - p.china;
+  must(remaining > 0, 'All units are already in the China warehouse.');
+  const quantity = input.quantity ?? remaining;
+  must(Number.isSafeInteger(quantity) && quantity > 0 && quantity <= remaining, `Enter a quantity between 1 and ${remaining}.`);
+  const target = p.china + quantity;
+  if (p.calledOut < target) recordCallOut(p, target - p.calledOut, input.at, '');
+  const released = p.hold;
+  p.china += quantity; p.hold = ''; p.holdAt = ''; p.holdBy = '';
+  const toShipments = input.action === 'Shipments';
+  p.destination = toShipments ? 'Shipments' : 'China warehouse'; p.owner = 'China Controller'; p.deadline = p.required;
+  p.nextAction = toShipments ? 'Add these goods to a container loading list' : 'Allocate warehouse goods to a shipment';
+  log(toShipments ? 'Moved to shipments' : 'Moved to China warehouse', quantity, `${input.notes || 'Moved from the vendor call-out page.'}${released ? ` (hold released: ${released})` : ''}`);
 }
 
 export const exceptionTypes = ['Damage', 'Shortage', 'Late vendor', 'Missed container', 'Wrong item / specification', 'Other'] as const;
@@ -209,4 +260,4 @@ export function reopenProduct(p: Product) { must(p.closed, 'This product line is
 /** True when a request with this key was already processed (protects against double clicks and retries). */
 export const seenRequest = (s: Store, requestId: string) => s.activity.some(a => a.requestId === requestId) || s.drafts.some(d => d.requestId === requestId) || s.exceptions.some(e => e.Request_ID === requestId);
 
-export async function snapshot() { const s = await getState(); return { ...s, today: today(), products: s.products.map(p => ({ ...p, planning: plan(p, s) })), alerts: alerts(s), drafts: s.drafts.map(d => ({ ...d, duplicate: duplicate(s, d) })) }; }
+export async function snapshot() { const s = await getState(); return { ...s, loadingLists: readLists(s), today: today(), products: s.products.map(p => ({ ...p, planning: plan(p, s) })), alerts: alerts(s), drafts: s.drafts.map(d => ({ ...d, duplicate: duplicate(s, d) })) }; }

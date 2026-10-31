@@ -1,10 +1,11 @@
 import { Router, type Request } from 'express';
 import { randomUUID } from 'node:crypto';
-import { getState, snapshot, commit, must, date, today, applyMovement, duplicate, recordCallOut, raiseException, updateException, resolveException, reopenException, closeProduct, reopenProduct, seenRequest, movements, type Draft, type Movement, type Product, type Store, OperationError } from '../operations.js';
+import { getState, snapshot, readLists, calloutAction, saveList, type LoadingList, commit, must, date, today, applyMovement, duplicate, recordCallOut, raiseException, updateException, resolveException, reopenException, closeProduct, reopenProduct, seenRequest, movements, type Draft, type Movement, type Product, type Store, OperationError } from '../operations.js';
 import { text, integer, HttpError } from '../http.js';
 import { actorOf, requirePermission } from '../auth.js';
 import { evidencePathPattern } from '../evidence.js';
 import { auditReceiving } from '../audit.js';
+import { aiReadLines, approveList, evaluate, flagged, findContainer, matchLine, newLine, openaiModel, parseTable, sourceLabel, trail, type RawLine } from '../loading-list.js';
 export const workspaceRouter = Router();
 
 /** Optional idempotency key sent by the screens: the same key never creates a second record. */
@@ -39,7 +40,7 @@ workspaceRouter.post('/shipments', async (req, res) => {
   await commit(s); res.status(existing ? 200 : 201).json(await snapshot());
 });
 
-const newProduct = (id: string, f: Record<string, string>, quantity: number, required: string, unit = 'pcs'): Product => ({ id, pi: f.pi, order: f.order, customer: f.customer, vendor: f.vendor, name: f.name, specs: f.specs, dimensions: f.dimensions, category: f.category, subcategory: f.subcategory, quantity, unit, authorization: 'Not Reviewed', production: 'Not Started', required, originalRequired: required, expectedCompletion: '', instructionDate: '', ackDate: '', startDate: '', completionDate: '', china: 0, loaded: 0, india: 0, delivered: 0, calledOut: 0, owner: 'India Controller', nextAction: 'Finalise measurement', deadline: today(), shipment: '', container: '', notes: '', issues: [], calloutDate: '', vendorCommitDate: '', quarantined: 0, closed: '', closedBy: '', closedReason: '', measurementDate: '' });
+const newProduct = (id: string, f: Record<string, string>, quantity: number, required: string, unit = 'pcs'): Product => ({ id, pi: f.pi, order: f.order, customer: f.customer, vendor: f.vendor, name: f.name, specs: f.specs, dimensions: f.dimensions, category: f.category, subcategory: f.subcategory, quantity, unit, authorization: 'Not Reviewed', production: 'Not Started', required, originalRequired: required, expectedCompletion: '', instructionDate: '', ackDate: '', startDate: '', completionDate: '', china: 0, loaded: 0, india: 0, delivered: 0, calledOut: 0, owner: 'India Controller', nextAction: 'Finalise measurement', deadline: today(), shipment: '', container: '', notes: '', issues: [], calloutDate: '', vendorCommitDate: '', quarantined: 0, closed: '', closedBy: '', closedReason: '', measurementDate: '', hold: '', holdAt: '', holdBy: '', destination: '' });
 const productFields = (body: Record<string, unknown>) => Object.fromEntries(['pi', 'order', 'customer', 'vendor', 'name', 'specs', 'dimensions', 'category', 'subcategory'].map(key => [key, text(body[key], 200)]));
 
 workspaceRouter.post('/products', async (req, res) => {
@@ -63,8 +64,9 @@ workspaceRouter.post('/products/bulk', async (req, res) => {
   const s = await getState(), actor = actorOf(req, req.body.actor), rows = req.body.rows;
   const head = productFields(req.body), required = date(text(req.body.required));
   must(actor && head.pi && head.order && head.customer, 'PI number, order reference, customer and your name are required.');
-  must(required, 'A valid required delivery date is needed for planning.');
   must(Array.isArray(rows) && rows.length > 0 && rows.length <= 200, 'Add between 1 and 200 product rows.');
+  // Each row may carry its own required delivery date; rows without one use the PI's default date.
+  must(required || rows.every((r: Record<string, unknown>) => date(text(r.required))), 'Enter a required delivery date for every row, or a default date for the whole PI.');
   must(!s.products.some(p => p.pi === head.pi && (p.customer !== head.customer || p.order !== head.order)), 'This PI already belongs to another customer or order. Use its existing customer/order or a new PI number.');
   const now = new Date().toISOString(), key = requestKey(req), created: Product[] = [];
   rows.forEach((row: Record<string, unknown>, index: number) => {
@@ -72,7 +74,9 @@ workspaceRouter.post('/products/bulk', async (req, res) => {
     must(f.name && f.vendor && f.category && f.subcategory, `Row ${n}: product name, vendor and category are required.`);
     must(s.leads.some(l => l.category === f.category && l.subcategory === f.subcategory), `Row ${n}: choose an existing lead-time category.`);
     must(Number.isSafeInteger(quantity) && quantity > 0 && quantity <= 1000000, `Row ${n}: quantity must be a positive whole number.`);
-    const product = newProduct(`PRD-${randomUUID().slice(0, 8).toUpperCase()}`, f, quantity, required, text(row.unit, 20).toLowerCase() || 'pcs');
+    const rowRequired = text(row.required, 10) ? date(text(row.required, 10)) : required;
+    must(rowRequired, `Row ${n}: enter a valid required delivery date.`);
+    const product = newProduct(`PRD-${randomUUID().slice(0, 8).toUpperCase()}`, f, quantity, rowRequired, text(row.unit, 20).toLowerCase() || 'pcs');
     const photos = Array.isArray(row.photos) ? row.photos : [];
     must(photos.length <= 8 && photos.every((v: unknown) => typeof v === 'string' && evidencePathPattern.test(v)), `Row ${n}: attach up to 8 photos uploaded through the app.`);
     if (photos.length) product.photos = photos;
@@ -84,8 +88,8 @@ workspaceRouter.post('/products/bulk', async (req, res) => {
 
 // Which permission each product update needs.
 const updatePermission: Record<string, string> = {
-  'Finalise measurement': 'production.authorize', 'Authorize production': 'production.authorize', 'Record instruction': 'production.instruct', 'Record acknowledgment': 'production.ack', 'Start production': 'production.start', 'Complete production': 'production.complete',
-  'Record vendor call-out': 'callout', 'Update follow-up': 'followup', 'Revise delivery date': 'delivery.revise', 'Close product line': 'product.close', 'Reopen product line': 'product.reopen',
+  'Finalise measurement': 'production.authorize', 'Authorize production': 'production.authorize', 'Start production': 'production.start', 'Complete production': 'production.complete',
+  'Record vendor call-out': 'callout', 'Revise delivery date': 'delivery.revise', 'Close product line': 'product.close', 'Reopen product line': 'product.reopen',
 };
 /** Applies one product update (authorize, instruct, start, revise date...) to a product in the loaded workspace; throws when it is not allowed. */
 function applyUpdate(req: Request, s: Store, p: Product) {
@@ -108,33 +112,20 @@ function applyUpdate(req: Request, s: Store, p: Product) {
   } else if (action === 'Authorize production') {
     must(p.authorization !== 'Approved for Production', 'Product is already authorized.');
     must(p.measurementDate, 'Finalise the measurement before authorizing production.');
-    p.authorization = 'Approved for Production'; p.owner = 'China Controller'; p.nextAction = 'Send production instruction';
-  } else if (action === 'Record instruction') {
-    must(p.authorization === 'Approved for Production', 'India authorization is required first.');
-    must(!p.instructionDate && !p.completionDate, 'Instruction is already recorded.');
-    p.instructionDate = at; p.production = 'Instruction Sent — Awaiting Acknowledgment'; p.nextAction = 'Obtain vendor acknowledgment';
-  } else if (action === 'Record acknowledgment') {
-    must(p.instructionDate && !p.ackDate, 'Record instruction first; acknowledgment must be new.');
-    must(at >= p.instructionDate, 'Acknowledgment cannot precede instruction.');
-    p.ackDate = at; p.production = 'Acknowledged — Awaiting Production Start'; p.nextAction = 'Confirm production start';
+    p.authorization = 'Approved for Production'; p.owner = 'China Controller'; p.nextAction = 'Start production and send the proof photo';
   } else if (action === 'Start production') {
-    must(p.authorization === 'Approved for Production' && p.ackDate, 'Authorization and vendor acknowledgment are required.');
+    must(p.authorization === 'Approved for Production', 'India authorization is required first.');
     must(!p.startDate && !p.completionDate, 'Production has already started or completed.');
-    must(at >= p.ackDate, 'Start cannot precede acknowledgment.');
     p.startDate = at; p.production = 'In Production'; p.nextAction = 'Monitor production completion';
   } else if (action === 'Complete production') {
     must(p.authorization === 'Approved for Production' && p.startDate, 'Record authorized production start first.');
     must(!p.completionDate && p.production !== 'Production Completed', 'Production is already complete.');
-    must(at >= p.startDate, 'Completion cannot precede start.');
+    must(at >= p.startDate, `Completion cannot be dated before production started (${p.startDate}). Choose that date or later.`);
     p.completionDate = at; p.production = 'Production Completed'; p.owner = 'China Controller'; p.nextAction = 'Record the vendor call-out for the ready goods';
   } else if (action === 'Record vendor call-out') {
     const commit_ = text(req.body.vendorCommitDate, 10), commitDate = commit_ ? date(commit_) : '';
     must(!commit_ || commitDate, 'Enter a valid vendor delivery commitment date.');
     recordCallOut(p, integer(req.body.quantity, 1), at, commitDate);
-  } else if (action === 'Update follow-up') {
-    const deadline = date(text(req.body.deadline));
-    must(deadline, 'Enter a valid next-action deadline.');
-    p.nextAction = notes; p.deadline = deadline; p.owner = text(req.body.owner, 100) || p.owner;
   } else if (action === 'Revise delivery date') {
     const required = date(text(req.body.required));
     must(required, 'Enter a valid required delivery date.');
@@ -142,7 +133,7 @@ function applyUpdate(req: Request, s: Store, p: Product) {
   } else if (action === 'Close product line') {
     closeProduct(s, p, { shortClose: req.body.shortClose === true, notes, actor, at });
   } else { reopenProduct(p); }
-  if (!['Update follow-up', 'Revise delivery date', 'Close product line', 'Reopen product line'].includes(action)) p.deadline = p.expectedCompletion > today() ? p.expectedCompletion : today();
+  if (!['Revise delivery date', 'Close product line', 'Reopen product line'].includes(action)) p.deadline = p.expectedCompletion > today() ? p.expectedCompletion : today();
   s.activity.unshift({ id: randomUUID(), productId: p.id, action, quantity: action === 'Record vendor call-out' ? integer(req.body.quantity, 1) : 0, document: text(req.body.document, 200), notes, actor, at: new Date().toISOString(), source: 'Operator update', evidence: text(req.body.evidence, 500) || undefined, photos: photos.length ? photos : undefined, requestId: requestKey(req) });
 }
 workspaceRouter.post('/products/:id/details', async (req, res) => {
@@ -180,6 +171,27 @@ workspaceRouter.post('/products/bulk-update', async (req, res) => {
     if (!p) { skipped.push({ id, name: id, error: 'Product not found.' }); continue; }
     const before = structuredClone(p), activityCount = s.activity.length;
     try { applyUpdate(req, s, p); updated++; } catch (error) {
+      if (!(error instanceof OperationError || error instanceof HttpError)) throw error;
+      Object.assign(p, before); s.activity.splice(0, s.activity.length - activityCount); skipped.push({ id, name: p.name, error: error.message });
+    }
+  }
+  if (updated) await commit(s);
+  res.json({ ...(await snapshot()), bulk: { updated, skipped } });
+});
+
+// Vendor call-out page: Move to China warehouse / Move to shipments / Hold (with a reason). One or many products; each is checked on its own.
+workspaceRouter.post('/products/callout-action', async (req, res) => {
+  requirePermission(req, 'callout');
+  const ids = req.body.ids, action = text(req.body.action, 40), actor = actorOf(req, req.body.actor);
+  must(actor, 'Your name is required.');
+  must(Array.isArray(ids) && ids.length >= 1 && ids.length <= 200 && ids.every((i: unknown) => typeof i === 'string'), 'Select between 1 and 200 products.');
+  const single = ids.length === 1, quantity = single && req.body.quantity !== undefined && action !== 'Hold' ? integer(req.body.quantity, 1) : undefined;
+  const reason = text(req.body.reason, 500), notes = text(req.body.notes, 500), s = await getState(), skipped: { id: string; name: string; error: string }[] = []; let updated = 0;
+  for (const id of new Set<string>(ids)) {
+    const p = s.products.find(x => x.id === id);
+    if (!p) { skipped.push({ id, name: id, error: 'Product not found.' }); continue; }
+    const before = structuredClone(p), activityCount = s.activity.length;
+    try { calloutAction(s, p, { action, quantity, reason, notes, actor, at: today() }); updated++; } catch (error) {
       if (!(error instanceof OperationError || error instanceof HttpError)) throw error;
       Object.assign(p, before); s.activity.splice(0, s.activity.length - activityCount); skipped.push({ id, name: p.name, error: error.message });
     }
@@ -234,6 +246,98 @@ workspaceRouter.post('/drafts/:id/review', async (req, res) => {
   if (decision === 'Approve') applyMovement(s, d, actor);
   d.status = decision === 'Approve' ? 'Approved' : 'Rejected'; d.reviewedBy = actor; d.reviewedAt = new Date().toISOString();
   if (decision === 'Reject') s.activity.unshift({ id: randomUUID(), productId: d.productId, action: 'Draft rejected', quantity: d.quantity, document: d.document, notes: d.notes, actor, at: d.reviewedAt, source: 'Operator review' });
+  await commit(s); res.json(await snapshot());
+});
+
+
+// ---- container loading list: AI reads it, rules match it, a controller approves it, only then do products move ----
+const anyOf = (req: Request, ...permissions: string[]) => { try { requirePermission(req, permissions[0]); } catch (error) { if (permissions.length < 2) throw error; anyOf(req, ...permissions.slice(1)); } };
+const loadingActivity = (s: Store, list: LoadingList, action: string, actor: string, notes: string, quantity = 0, requestId?: string) =>
+  s.activity.unshift({ id: randomUUID(), productId: '', action, quantity, document: list.id, notes, actor, at: new Date().toISOString(), source: 'Loading list', shipment: list.shipment, container: list.container, requestId });
+const findList = (s: Store, id: string) => { const list = readLists(s).find(l => l.id === id); must(list, 'Loading list not found.'); return list; };
+
+// Reads an uploaded loading list into matched lines. Nothing is saved.
+workspaceRouter.post('/loading-lists/interpret', async (req, res) => {
+  requirePermission(req, 'shipment.manage');
+  const s = await getState(); must(s.products.some(p => !p.closed), 'There are no open product lines to match against.');
+  const table: unknown = req.body.table, images: unknown = req.body.images;
+  let raw: RawLine[] | null = null, source = 'table', model = '', container = '', input = typeof req.body.text === 'string' ? req.body.text.slice(0, 60000) : '';
+  if (table !== undefined) {
+    must(Array.isArray(table) && table.length <= 3000 && table.every(r => Array.isArray(r) && r.length <= 60), 'The spreadsheet is too large or unreadable.');
+    const rows = (table as unknown[][]).map(r => r.map(c => String(c ?? '').slice(0, 200)));
+    raw = parseTable(rows); container = findContainer(rows); input = rows.map(r => r.join('\t')).join('\n').slice(0, 60000);
+  }
+  if (!raw) {
+    must(process.env.OPENAI_API_KEY, 'This file needs AI reading. Set OPENAI_API_KEY on the backend, or upload an Excel/CSV file with Model/Description and Qty columns.');
+    must(images === undefined || (Array.isArray(images) && images.length >= 1 && images.length <= 6 && images.every(i => typeof i === 'string' && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(i))), 'Send 1 to 6 images (JPG, PNG or WebP).');
+    must(images || input, 'Upload an Excel, CSV, PDF or image loading list.');
+    raw = await aiReadLines(images ? { images: images as string[] } : { text: input }); source = 'ai';
+  }
+  must(raw.length, 'No product lines were found in this file. Check that the Qty column is visible.');
+  const lines = raw.slice(0, 300).map(r => { const m = matchLine(s, r), line = newLine(r, m.productId, m.productId); line.pi = m.pi; line.status = m.status; line.note = m.note; return line; });
+  res.json({ lines: evaluate(s, lines, ''), container, source, model: source === 'ai' ? openaiModel() : '', read: raw.length });
+});
+// Matches one line again after the reviewer edited its text (for example the carton mark). Nothing is saved.
+workspaceRouter.post('/loading-lists/rematch', async (req, res) => {
+  requirePermission(req, 'shipment.manage');
+  const s = await getState();
+  res.json(matchLine(s, { code: text(req.body.code, 100), description: text(req.body.description, 200), pi: text(req.body.pi, 100), quantity: 1, unit: 'pcs' }));
+});
+// Saves the reviewed list as Pending approval. No product status changes here.
+workspaceRouter.post('/loading-lists', async (req, res) => {
+  requirePermission(req, 'shipment.manage');
+  const s = await getState(), actor = actorOf(req, req.body.actor), shipment = text(req.body.shipment, 100), container = text(req.body.container, 100), rows = req.body.lines;
+  must(actor, 'Your name is required.');
+  must(s.shipments.some(sh => sh.Shipment_ID === shipment), 'Choose a shipment. Create it first with “Add shipment”.');
+  must(container, 'Container number is required.');
+  must(Array.isArray(rows) && rows.length >= 1 && rows.length <= 300, 'A loading list needs between 1 and 300 lines.');
+  const source = text(req.body.source, 20) === 'ai' ? 'ai' : 'table', removed = Math.max(0, Math.min(Number(req.body.removed) || 0, 1000));
+  const lines = rows.map((r: Record<string, unknown>) => { const quantity = Math.round(Number(r.quantity)) || 0; return { ...newLine({ code: text(r.code, 100), description: text(r.description, 200), pi: text(r.pi, 100), quantity, unit: text(r.unit, 20) || 'pcs' }, text(r.productId, 100), text(r.suggested, 100)), aiQuantity: Math.round(Number(r.aiQuantity)) || quantity, aiText: text(r.aiText, 320) || `${text(r.code, 100)} | ${text(r.description, 200)}` }; });
+  const list: LoadingList = { id: `LL-${randomUUID().slice(0, 8).toUpperCase()}`, shipment, container, fileName: text(req.body.fileName, 200) || 'loading list', source, model: text(req.body.model, 60), status: 'Pending approval', lines, trail: [], createdAt: new Date().toISOString(), createdBy: actor };
+  evaluate(s, list.lines, list.id);
+  const textChanged = (l: LoadingList['lines'][number]) => `${l.code} | ${l.description}` !== l.aiText, changed = list.lines.filter(l => l.productId !== l.suggested || l.quantity !== l.aiQuantity || textChanged(l));
+  const describe = (l: LoadingList['lines'][number]) => [l.productId !== l.suggested && `${l.code || l.description}: product ${l.suggested || 'unmatched'} → ${l.productId || 'unmatched'}`, l.quantity !== l.aiQuantity && `${l.code || l.description}: quantity ${l.aiQuantity} → ${l.quantity}`, textChanged(l) && `text “${l.aiText}” → “${l.code} | ${l.description}”`].filter(Boolean).join('; ');
+  list.trail.push(trail(actor, 'AI interpretation', `${sourceLabel(source)}${list.model ? ` (${list.model})` : ''}: ${list.lines.length + removed} line(s) read from ${list.fileName}, matched to the product master and PIs.`));
+  if (changed.length || removed) list.trail.push(trail(actor, 'Manual corrections', [...changed.map(describe), removed ? `${removed} line(s) removed` : ''].filter(Boolean).join(' | ')));
+  list.trail.push(trail(actor, 'Submitted for controller approval', `${list.lines.length} line(s), ${flagged(list).length} flagged for review. Product statuses are unchanged until approval.`));
+  saveList(s, list); loadingActivity(s, list, 'Loading list submitted', actor, `${shipment} / ${container}: ${list.lines.length} line(s), ${flagged(list).length} flagged. ${list.fileName}`, list.lines.reduce((n, l) => n + (l.quantity || 0), 0), requestKey(req));
+  await commit(s); res.status(201).json(await snapshot());
+});
+// Fix flagged lines of a pending list (choose the product, change the quantity, or remove the line).
+workspaceRouter.post('/loading-lists/:id/correct', async (req, res) => {
+  anyOf(req, 'shipment.manage', 'loadinglist.approve');
+  const s = await getState(), actor = actorOf(req, req.body.actor), list = findList(s, req.params.id), edits = req.body.lines;
+  must(actor, 'Your name is required.'); must(list.status === 'Pending approval', 'Only a pending loading list can be corrected.');
+  must(Array.isArray(edits) && edits.length >= 1 && edits.length <= 300, 'Nothing to correct.');
+  const notes: string[] = [];
+  for (const e of edits as Record<string, unknown>[]) {
+    const line = list.lines.find(l => l.id === e.id); must(line, 'A line of this list was not found.');
+    const label = line.code || line.description;
+    if (e.remove === true) { list.lines = list.lines.filter(l => l !== line); notes.push(`${label}: removed`); continue; }
+    if (typeof e.productId === 'string' && e.productId !== line.productId) { must(s.products.some(p => p.id === e.productId), 'Choose a product from the product master.'); notes.push(`${label}: product ${line.productId || 'unmatched'} → ${e.productId}`); line.productId = e.productId; }
+    if (e.quantity !== undefined && Number(e.quantity) !== line.quantity) { const q = Math.round(Number(e.quantity)); must(Number.isSafeInteger(q) && q > 0 && q <= 1000000, 'Quantity must be a positive whole number.'); notes.push(`${label}: quantity ${line.quantity} → ${q}`); line.quantity = q; }
+  }
+  must(list.lines.length > 0, 'A loading list needs at least one line. Reject it instead.');
+  evaluate(s, list.lines, list.id); list.trail.push(trail(actor, 'Manual corrections', notes.join(' | ') || 'No change.'));
+  saveList(s, list); loadingActivity(s, list, 'Loading list corrected', actor, notes.join(' | ') || 'No change.', 0, requestKey(req));
+  await commit(s); res.json(await snapshot());
+});
+// Controller approval: "OK to All" moves every product of the list to Container loading, or none if any line fails.
+workspaceRouter.post('/loading-lists/:id/approve', async (req, res) => {
+  requirePermission(req, 'loadinglist.approve');
+  const s = await getState(), actor = actorOf(req, req.body.actor), list = findList(s, req.params.id);
+  must(actor, 'Your name is required.'); must(req.body.okToAll === true, 'Confirm “OK to All” to approve the whole list.');
+  must(list.status === 'Pending approval', 'This loading list was already decided.');
+  approveList(s, list, actor); saveList(s, list);
+  loadingActivity(s, list, 'Loading list approved', actor, `${list.shipment} / ${list.container}: OK to All, ${list.lines.length} product line(s) moved to Container loading.`, list.lines.reduce((n, l) => n + l.quantity, 0), requestKey(req));
+  await commit(s); res.json(await snapshot());
+});
+workspaceRouter.post('/loading-lists/:id/reject', async (req, res) => {
+  requirePermission(req, 'loadinglist.approve');
+  const s = await getState(), actor = actorOf(req, req.body.actor), list = findList(s, req.params.id), notes = text(req.body.notes, 1000);
+  must(actor && notes, 'Your name and the reason are required.'); must(list.status === 'Pending approval', 'This loading list was already decided.');
+  list.status = 'Rejected'; list.decidedBy = actor; list.decidedAt = new Date().toISOString(); list.trail.push(trail(actor, 'Rejected', notes));
+  saveList(s, list); loadingActivity(s, list, 'Loading list rejected', actor, notes, 0, requestKey(req));
   await commit(s); res.json(await snapshot());
 });
 

@@ -7,9 +7,9 @@ import { request } from '@/services/workspace-api';
 import { useI18n } from '@/lib/i18n';
 const permissionLabels: Record<string, string> = {
   'users.manage': 'Manage permissions', 'product.edit': 'Edit details', 'product.create': 'Create product line',
-  'production.authorize': 'Authorize production', 'production.instruct': 'Record instruction', 'production.ack': 'Record acknowledgment',
+  'production.authorize': 'Authorize production',
   'production.start': 'Start production', 'production.complete': 'Complete production', 'callout': 'Record vendor call-out',
-  'followup': 'Update follow-up', 'delivery.revise': 'Revise delivery date', 'draft.review': 'Approval Inbox',
+  'delivery.revise': 'Revise delivery date', 'draft.review': 'Approval Inbox',
   'shipment.manage': 'Shipments', 'exception.raise': 'Raise a new exception', 'exception.update': 'Exceptions',
   'exception.resolve': 'Exceptions', 'exception.reopen': 'Exceptions', 'product.close': 'Close product line',
   'product.reopen': 'Reopen product line', 'leadtimes.edit': 'Save lead times', 'ai.use': 'AI Assistant'

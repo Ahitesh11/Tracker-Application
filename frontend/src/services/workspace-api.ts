@@ -1,5 +1,5 @@
 export interface Product {
-  photos?: string[];
+  photos?: string[]; hold?: string; holdAt?: string; holdBy?: string; destination?: string;
   id: string; pi: string; order: string; customer: string; vendor: string; name: string; specs: string; dimensions: string;
   category: string; subcategory: string; quantity: number; unit: string; authorization: string; production: string;
   required: string; originalRequired: string; expectedCompletion: string; instructionDate: string; ackDate: string; startDate: string; completionDate: string;
@@ -17,7 +17,11 @@ export interface Alert { id: string; productId: string; title: string; detail: s
 /** Exception records use the workbook-style keys stored by the backend. */
 export type ExceptionRow = Record<'Exception_ID' | 'Product_ID' | 'Problem_Type' | 'Description' | 'Quantity' | 'Quarantine' | 'Responsible_Person' | 'Date_Identified' | 'Deadline' | 'Status' | 'Resolution_Notes' | 'Disposition' | 'Raised_By' | 'Resolved_By' | 'Resolved_Date', string>;
 export const exceptionTypes = ['Damage', 'Shortage', 'Late vendor', 'Missed container', 'Wrong item / specification', 'Other'] as const;
-export interface WorkspaceData { revision: number; source: string; importedAt: string; today: string; products: Product[]; leads: LeadTime[]; drafts: Draft[]; activity: Activity[]; alerts: Alert[]; shipments: Record<string, string>[]; exceptions: ExceptionRow[] }
+export type LineStatus = 'Matched' | 'Unmatched' | 'Ambiguous' | 'Duplicate' | 'Quantity issue';
+export interface LoadingLine { id: string; productId: string; code: string; description: string; pi: string; quantity: number; unit: string; status: LineStatus; note: string; suggested: string; aiQuantity: number; aiText: string }
+export interface TrailEntry { at: string; actor: string; event: string; detail: string }
+export interface LoadingList { id: string; shipment: string; container: string; fileName: string; source: string; model: string; status: 'Pending approval' | 'Approved' | 'Rejected'; lines: LoadingLine[]; trail: TrailEntry[]; createdAt: string; createdBy: string; decidedBy?: string; decidedAt?: string }
+export interface WorkspaceData { revision: number; source: string; importedAt: string; today: string; products: Product[]; leads: LeadTime[]; drafts: Draft[]; activity: Activity[]; alerts: Alert[]; shipments: Record<string, string>[]; exceptions: ExceptionRow[]; loadingLists: LoadingList[] }
 export interface AIStatus { local: boolean; ollama: boolean; models: string[]; gatewayConfigured: boolean; gatewayModel: string; openaiConfigured: boolean; openaiModel: string }
 export interface MovementProposal { productId: string; productName: string; type: string; quantity: number; document: string; shipment: string; container: string; notes: string; confidence: string }
 import { tx, dateLocale, getLang } from '@/lib/i18n';

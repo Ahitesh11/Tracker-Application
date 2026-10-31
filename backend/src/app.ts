@@ -19,6 +19,7 @@ app.use('/api', (req,res,next)=>{
   if(req.method==='OPTIONS'){res.sendStatus(204);return;}next();
 });
 app.use('/api/assistant/extract-pi', express.json({ limit: '4mb' })); // photos of a PI; everything else stays small
+app.use('/api/workspace/loading-lists', express.json({ limit: '4mb' })); // a loading list (rows, or photos of it)
 app.use('/api/evidence', express.json({ limit: '3mb' })); // one compressed photo per request
 app.use(express.json({ limit: '100kb' }));app.use('/api',jsonBody);app.use('/api',authenticate);
 app.get('/api/health', async (_req, res) => {const database=await databaseHealth();res.status(database.ready?200:503).json({status:database.ready?'ok':'unavailable',workspace:'product-tracking',storage:database.engine,database});});

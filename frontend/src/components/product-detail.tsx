@@ -15,15 +15,12 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
   const { data, mutate, busy, refresh } = useWorkspace(), { can } = useAuth(), { t } = useI18n(), [requestId, renew] = useRequestId();
   const allowedMovements = movementTypes.filter(type => can(`movement.${type}`));
   const actions = p.closed ? (can('product.reopen') ? ['Reopen product line'] : []) : [
-    ...(can('followup') ? ['Update follow-up'] : []), ...(can('delivery.revise') ? ['Revise delivery date'] : []),
     ...(p.authorization !== 'Approved for Production' && !p.measurementDate && can('production.authorize') ? ['Finalise measurement'] : []),
     ...(p.authorization !== 'Approved for Production' && p.measurementDate && can('production.authorize') ? ['Authorize production'] : []),
-    ...(p.authorization === 'Approved for Production' && !p.instructionDate && !p.completionDate && can('production.instruct') ? ['Record instruction'] : []),
-    ...(p.instructionDate && !p.ackDate && can('production.ack') ? ['Record acknowledgment'] : []),
-    ...(p.ackDate && !p.startDate && !p.completionDate && can('production.start') ? ['Start production'] : []),
+    ...(p.authorization === 'Approved for Production' && !p.startDate && !p.completionDate && can('production.start') ? ['Start production'] : []),
     ...(p.startDate && !p.completionDate && p.production !== 'Production Completed' && can('production.complete') ? ['Complete production'] : []),
     ...(p.production === 'Production Completed' && p.calledOut < p.quantity && can('callout') ? ['Record vendor call-out'] : []),
-    ...(can('followup') ? ['Update follow-up'] : []), ...(can('delivery.revise') ? ['Revise delivery date'] : []),
+    ...(can('delivery.revise') ? ['Revise delivery date'] : []),
     ...(can('product.close') ? ['Close product line'] : []),
   ];
   const [tab, setTab] = useState('Overview'), [action, setAction] = useState(actions[0] || ''), [movement, setMovement] = useState<string>(allowedMovements[0] || 'China receiving'), [error, setError] = useState(''), [saved, setSaved] = useState(''), [photos, setPhotos] = useState<string[]>([]), [productPhotos, setProductPhotos] = useState<string[]>(p.photos || []), [uploading, setUploading] = useState(false);
@@ -46,7 +43,7 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
   }, [close]);
   const current = actions.includes(action) ? action : actions[0] || '';
   const proofActions = ['Start production', 'Complete production'];
-  const balance = p.quantity - p.delivered, noDate = ['Update follow-up', 'Revise delivery date', 'Close product line', 'Reopen product line'], unit = t(p.unit);
+  const balance = p.quantity - p.delivered, noDate = ['Revise delivery date', 'Close product line', 'Reopen product line'], unit = t(p.unit);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (uploading) return; setError(''); setSaved('');
     const form = event.currentTarget, values = Object.fromEntries(new FormData(form));
@@ -84,9 +81,9 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
           <div className="detail-badges"><Badge>{p.planning.stage}</Badge><Badge>{p.planning.risk}</Badge>{p.quarantined > 0 && <Badge tone="amber">{t('{n} in quarantine', { n: p.quarantined })}</Badge>}{openExceptions > 0 && <Badge tone="red">{t('{n} open exceptions', { n: openExceptions })}</Badge>}</div>
           {p.closed && <div className="info-banner"><Lock size={18}/><span>{t('Closed on {date} by {name}.', { date: displayDate(p.closed), name: p.closedBy })} {t(p.closedReason)}</span></div>}
           <div className="quantity-flow">{[['Ordered', p.quantity], ['Called out', p.calledOut], ['China', p.china], ['Loaded', p.loaded], ['India', p.india], ['Delivered', p.delivered]].map(([label, value]) => <div key={label}><strong>{value}</strong><span>{t(String(label))}</span></div>)}</div>
-          <div className="step-list">{[...journeyStages.map((s, i) => ({ ...s, complete: progress[i] === 'done' })), { step: 'Closed', owner: '' as const, proof: '', complete: Boolean(p.closed) }].map(s => <div className={s.complete ? 'done' : ''} key={s.step}><span>{s.complete ? '✓' : '○'}</span>{t(s.step)}{s.owner && <> <OwnerTag owner={s.owner}/></>}{s.proof && <small className="muted"> · {t(s.proof)}</small>}</div>)}</div>
+          <div className="step-list">{[...journeyStages.map((s, i) => ({ ...s, complete: progress[i] === 'done' })), { step: 'Closed', owner: '' as const, proof: '', complete: Boolean(p.closed) }].map(s => <div className={s.complete ? 'done' : ''} key={s.step}><span>{s.complete ? '✓' : '○'}</span><div className="step-text"><strong>{t(s.step)}</strong>{(s.owner || s.proof) && <em className="step-meta">{s.owner && <OwnerTag owner={s.owner}/>}{s.proof && <small>{t(s.proof)}</small>}</em>}</div></div>)}</div>
           {!p.closed && <div className="next-action-card"><span className="eyebrow">{t('NEXT ACTION')}</span><h3>{t(p.nextAction)}</h3><p>{t(p.owner)} · {t('Due {date}', { date: displayDate(p.deadline) })}</p></div>}
-          <dl className="detail-grid">{[['Required delivery', displayDate(p.required)], ['Latest instruction', displayDate(p.planning.latestInstruction)], ['Latest production start', displayDate(p.planning.latestStart)], ['Latest completion', displayDate(p.planning.latestComplete)], ['Manufacturing / logistics', t('{a} / {b} days (+{c} confirmation)', { a: p.planning.manufacturing, b: p.planning.logistics, c: p.planning.confirmation })], ['Production status', t(p.production)], ['Vendor call-out', p.calledOut ? `${p.calledOut} / ${p.quantity}${p.vendorCommitDate ? ' · ' + t('vendor promised {date}', { date: displayDate(p.vendorCommitDate) }) : ''}` : t('Not called out')], ['Original customer date', displayDate(p.originalRequired)], ['Specifications', p.specs], ['Dimensions', p.dimensions], ['Order', p.order], ['Shipment', p.shipment ? `${p.shipment}${p.container ? ' · ' + p.container : ''}` : t('Not allocated')]].map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value || '—'}</dd></div>)}</dl>
+          <dl className="detail-grid">{[['Required delivery', displayDate(p.required)], ['Latest production start', displayDate(p.planning.latestStart)], ['Latest completion', displayDate(p.planning.latestComplete)], ['Manufacturing / logistics', t('{a} / {b} days (+{c} confirmation)', { a: p.planning.manufacturing, b: p.planning.logistics, c: p.planning.confirmation })], ['Production status', t(p.production)], ['Vendor call-out', p.calledOut ? `${p.calledOut} / ${p.quantity}${p.vendorCommitDate ? ' · ' + t('vendor promised {date}', { date: displayDate(p.vendorCommitDate) }) : ''}` : t('Not called out')], ['Original customer date', displayDate(p.originalRequired)], ['Specifications', p.specs], ['Dimensions', p.dimensions], ['Order', p.order], ['Shipment', p.shipment ? `${p.shipment}${p.container ? ' · ' + p.container : ''}` : t('Not allocated')]].map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd>{value || '—'}</dd></div>)}</dl>
         </>}
         {tab === 'Edit details' && can('product.edit') && !p.closed && <form className="op-form" onSubmit={submit}>
           {(['vendor', 'name', 'dimensions', 'specs'] as const).map(key => <Field key={key} label={t(({ vendor: 'Vendor name', name: 'Product name', dimensions: 'Dimensions', specs: 'Specifications' })[key])}><input name={key} defaultValue={p[key]} required={key === 'vendor' || key === 'name'} maxLength={200}/></Field>)}
@@ -99,13 +96,12 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
           ? <div className="info-banner"><Lock size={18}/><span>{p.closed ? t('This product line is closed.') : t('Your role has no actions here.')}</span></div>
           : (tab === 'Update product' || tab === 'Record movement') && <form className="op-form" onSubmit={submit} key={tab + current + movement}>
           {tab === 'Update product' ? <><div className="info-banner" role="note"><ClipboardCheck size={18}/>{t('Single update: applies to this product only. To update many products together, select them in the table and use Bulk update.')}</div><Field label="What happened?"><select value={current} onChange={e => { setAction(e.target.value); setSaved(''); setPhotos([]); }}>{actions.map(value => <option key={value} value={value}>{t(value)}</option>)}</select></Field>
-            {current === 'Update follow-up' && <div className="form-grid"><Field label="Responsible person"><input name="owner" defaultValue={p.owner} required maxLength={100}/></Field><Field label="Next-action deadline"><input type="date" name="deadline" defaultValue={data?.today} required/></Field></div>}
             {current === 'Revise delivery date' && <Field label="Customer-confirmed required date"><input type="date" name="required" defaultValue={p.required} required/></Field>}
             {current === 'Record vendor call-out' && <div className="form-grid"><Field label={t('Units called out (up to {n})', { n: p.quantity - p.calledOut })}><input type="number" name="quantity" min="1" max={p.quantity - p.calledOut} step="1" defaultValue={p.quantity - p.calledOut} required/></Field><Field label="Vendor promises delivery by"><input type="date" name="vendorCommitDate" min={data?.today}/></Field></div>}
             {current === 'Close product line' && <>{balance > 0 && <label className="check-field"><input type="checkbox" name="shortClose"/><span>{t('Close with the remaining {n} undelivered (short close)', { n: `${balance} ${unit}` })}</span></label>}<div className="info-banner"><ClipboardCheck size={18}/>{t('Closing needs: no open exceptions, no pending drafts and no goods left in a warehouse or in transit.')}</div></>}
-            {!noDate.includes(current) && <Field label="Actual event date"><input type="date" name="date" defaultValue={data?.today} max={data?.today} required/></Field>}
+            {!noDate.includes(current) && <Field label="Actual event date"><input type="date" name="date" defaultValue={data?.today} min={(current === 'Complete production' ? p.startDate : '') || undefined} max={data?.today} required/></Field>}
             {proofActions.includes(current) && <PhotoField kind="product" label={current === 'Start production' ? 'Photos proving production has started' : 'Photos proving production is complete'} required paths={photos} setPaths={setPhotos} onBusyChange={setUploading}/>}
-            {!['Update follow-up', 'Revise delivery date'].includes(current) && <EvidenceField/>}
+            {current !== 'Revise delivery date' && <EvidenceField/>}
           </> : <>
             <div className="info-banner"><ClipboardCheck size={18}/>{t('This creates a draft. Quantities change only after a reviewer approves it in the inbox.')}</div>
             <Field label="Movement"><select value={movement} onChange={e => { setMovement(e.target.value); setSaved(''); setPhotos([]); }}>{allowedMovements.map(value => <option key={value} value={value}>{t(value)}</option>)}</select></Field>
@@ -118,7 +114,7 @@ function Detail({ product: p, close }: { product: Product; close: () => void }) 
             <EvidenceField/>
           </>}
           <ActorField/>
-          <Field label={tab === 'Update product' && current === 'Update follow-up' ? 'Next action' : 'Evidence / update note'}><textarea name="notes" required maxLength={2000} rows={4} placeholder={t('What changed? Include the evidence or document reference.')}/></Field>
+          <Field label="Evidence / update note"><textarea name="notes" required maxLength={2000} rows={4} placeholder={t('What changed? Include the evidence or document reference.')}/></Field>
           {error && <div className="error-banner" role="alert">{t(error)}</div>}{saved && <div className="success-banner" role="status">{saved}</div>}
           <Button type="submit" disabled={busy}>{busy ? t('Saving…') : tab === 'Record movement' ? t('Create movement draft') : current === 'Close product line' ? t('Close product line') : t('Save product update')}</Button>
         </form>}

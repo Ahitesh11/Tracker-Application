@@ -11,6 +11,19 @@ export function SectionHeader({ title, description, children }: { title: string;
 export function Field({ label, children }: { label: string; children: ReactNode }) { const { t } = useI18n(); return <label className="op-field"><span>{t(label)}</span>{children}</label>; }
 
 type JourneyInput = { authorization: string; production: string; measurementDate?: string; startDate?: string; quantity: number; calledOut?: number; china: number; loaded: number; india: number; delivered: number };
+type StepInput = JourneyInput & { closed?: string; completionDate?: string };
+/** True when this production update can still be applied to the product (same rules as the server). Follow-up and delivery-date changes are always possible on an open product. */
+export function canTake(action: string, p: StepInput): boolean {
+  if (p.closed) return false;
+  const authorized = p.authorization === 'Approved for Production', started = Boolean(p.startDate), done = Boolean(p.completionDate) || p.production === 'Production Completed';
+  switch (action) {
+    case 'Finalise measurement': return !authorized && !p.measurementDate;
+    case 'Authorize production': return !authorized && Boolean(p.measurementDate);
+    case 'Start production': return authorized && !started && !p.completionDate;
+    case 'Complete production': return authorized && started && !done;
+    default: return true;
+  }
+}
 /** The product journey: who confirms each stage and what proof they must attach. */
 export const journeyStages = [
   { step: 'Finalise measurement', owner: 'India', proof: '' },
